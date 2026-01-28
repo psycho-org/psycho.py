@@ -1,0 +1,106 @@
+### Psycho AI Server - API Testing
+
+@host = http://localhost:8000
+
+### Health Check
+GET {{host}}/health
+
+### Get API Info
+GET {{host}}/
+
+### Summarize Messages
+POST {{host}}/api/summarize
+Content-Type: application/json
+
+{
+  "messages": [
+    "Alice: 안녕하세요, 새로운 마케팅 전략을 논의해야 합니다.",
+    "Bob: 좋은 생각입니다. Q1 목표를 달성하려면 세 가지 방안을 고려해야 합니다.",
+    "Alice: 맞습니다. 각 방안의 장단점을 정리해주세요.",
+    "Bob: 완료했습니다. 내일 회의에서 발표하겠습니다."
+  ]
+}
+
+### Extract Decisions
+POST {{host}}/api/decisions
+Content-Type: application/json
+
+{
+  "messages": [
+    "PM: 우리는 Q2에 새로운 기능을 출시해야 합니다.",
+    "Dev Lead: 동의합니다. 마감일은 2026년 5월 31일로 설정하겠습니다.",
+    "PM: 좋습니다. 개발팀이 담당하세요.",
+    "Dev Lead: 확인했습니다. 리소스를 배분하겠습니다."
+  ]
+}
+
+### Generate Catchup
+POST {{host}}/api/catchup
+Content-Type: application/json
+
+{
+  "messages": [
+    "Alice: 오늘 회의에서 새로운 프로젝트가 시작되었습니다.",
+    "Bob: 예, 팀 구성원들이 결정되었습니다.",
+    "Charlie: 다음 주부터 시작합니다.",
+    "Alice: 모두 준비되었나요?",
+    "Bob: 네, 준비됐습니다."
+  ]
+}
+
+### Test Input Validation - Empty Messages (Should fail)
+POST {{host}}/api/summarize
+Content-Type: application/json
+
+{
+  "messages": []
+}
+
+### Test Input Validation - Message Too Long (Should fail)
+POST {{host}}/api/summarize
+Content-Type: application/json
+
+{
+  "messages": [
+    "A very long message that exceeds the maximum length of 5000 characters. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+  ]
+}
+
+### Test Input Validation - Too Many Messages (Should fail)
+POST {{host}}/api/summarize
+Content-Type: application/json
+
+{
+  "messages": [
+    "Message 1",
+    "Message 2",
+    "Message 3",
+    "Message 4",
+    "Message 5",
+    "Message 6",
+    "Message 7",
+    "Message 8",
+    "Message 9",
+    "Message 10",
+    "Message 11",
+    "Message 12",
+    "Message 13",
+    "Message 14",
+    "Message 15",
+    "Message 16",
+    "Message 17",
+    "Message 18",
+    "Message 19",
+    "Message 20",
+    "Message 21",
+    "Message 22",
+    "Message 23",
+    "Message 24",
+    "Message 25",
+    "Message 26",
+    "Message 27",
+    "Message 28",
+    "Message 29",
+    "Message 30"
+  ]
+}
