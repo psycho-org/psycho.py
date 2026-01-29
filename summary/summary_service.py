@@ -5,10 +5,27 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TypedDict
+from typing import TypedDict, TYPE_CHECKING
 
-from infrastructure.summary import SummaryAnalyzer
-from service.discord_chat_service import DiscordChatService
+from summary.summary import SummaryAnalyzer
+
+if TYPE_CHECKING:
+    # 타입 체크용 - 실제 구현이 없을 수 있음
+    from typing import Protocol
+    
+    class DiscordChatService(Protocol):
+        """Discord 채팅 서비스 프로토콜"""
+        messages: list[dict]
+        
+        def get_messages_text_by_channel(
+            self, channel_id: int, limit: int, include_author: bool
+        ) -> str:
+            ...
+        
+        def get_all_messages_text(
+            self, limit: int, include_author: bool
+        ) -> str:
+            ...
 
 # 채팅 요약용 기본값 (일반 요약보다 길게)
 CHAT_DEFAULT_MAX_LENGTH = 200

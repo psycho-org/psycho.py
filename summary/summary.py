@@ -382,9 +382,9 @@ def get_summary_analyzer(model_name: str = "LGAI-EXAONE/EXAONE-4.0-1.2B") -> Sum
 
 
 if __name__ == "__main__":
-    """Infrastructure 레이어 직접 테스트 (실제 실행 시 리소스/실행모드 출력 없음)"""
+    """Summary 패키지 직접 테스트 (실제 실행 시 리소스/실행모드 출력 없음)"""
     print("=" * 60)
-    print("Infrastructure 레이어 직접 테스트")
+    print("Summary 패키지 직접 테스트")
     print("=" * 60)
     
     analyzer = SummaryAnalyzer()

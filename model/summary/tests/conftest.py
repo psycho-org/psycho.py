@@ -19,7 +19,7 @@ except (ImportError, OSError) as e:
 def pytest_sessionstart(session):
     """테스트 세션 시작 시 실행 모드(CPU/GPU) 출력 + 리소스 출력 활성화."""
     import os
-    os.environ["PSYCHO_PYTEST"] = "1"  # summary.summary에서 리소스 출력 허용
+    os.environ["PSYCHO_PYTEST"] = "1"  # infrastructure.summary에서 리소스 출력 허용
     print("")
     print("=" * 70)
     if TORCH_AVAILABLE and torch is not None:
