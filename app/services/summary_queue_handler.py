@@ -4,18 +4,18 @@ Summary Queue Handler - 큐를 통한 요약 작업 처리 및 결과 반환
 
 import asyncio
 import logging
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Optional, Dict, Any
 
 from app.services.dispatcher import AsyncDispatcher
-from summary.summary_service import SummaryService
+from model.summary.summary_service import SummaryService
 
 logger = logging.getLogger(__name__)
 
 
 class SummaryQueueHandler:
     """큐를 통해 요약 작업을 처리하고 결과를 반환하는 핸들러"""
-    
+
     def __init__(
         self,
         dispatcher: AsyncDispatcher,
@@ -28,7 +28,7 @@ class SummaryQueueHandler:
         """
         self.dispatcher = dispatcher
         self.summary_service = summary_service or SummaryService()
-    
+
     async def summarize_text(
         self,
         text: str,
@@ -55,10 +55,10 @@ class SummaryQueueHandler:
         """
         if not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher가 실행 중이 아닙니다. start()를 먼저 호출하세요.")
-        
+
         # Future를 사용하여 결과를 받을 수 있도록 함
         future: asyncio.Future[str] = asyncio.Future()
-        
+
         # 요약 작업 코루틴 생성 (예외 처리 포함)
         async def summarize_task() -> str:
             """실제 요약 작업"""
@@ -78,13 +78,13 @@ class SummaryQueueHandler:
                 if not future.done():
                     future.set_exception(e)
                 raise
-        
+
         # 콜백 함수: 결과를 Future에 설정 (이중 안전장치)
         def result_callback(result: str) -> None:
             """작업 완료 시 Future에 결과 설정"""
             if not future.done():
                 future.set_result(result)
-        
+
         # 큐에 작업 제출
         try:
             await self.dispatcher.submit_task(
@@ -95,7 +95,7 @@ class SummaryQueueHandler:
         except asyncio.QueueFull:
             logger.error("큐가 가득 찼습니다. 작업을 제출할 수 없습니다.")
             raise
-        
+
         # 결과 대기 (타임아웃 적용)
         try:
             if timeout:
@@ -109,7 +109,7 @@ class SummaryQueueHandler:
         except Exception as e:
             logger.error(f"요약 작업 처리 중 오류: {e}", exc_info=True)
             raise
-    
+
     async def summarize_batch(
         self,
         texts: list[str],
@@ -138,10 +138,10 @@ class SummaryQueueHandler:
         """
         if not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher가 실행 중이 아닙니다. start()를 먼저 호출하세요.")
-        
+
         # Future를 사용하여 결과를 받을 수 있도록 함
         future: asyncio.Future[list[str]] = asyncio.Future()
-        
+
         # 배치 요약 작업 코루틴 생성 (예외 처리 포함)
         async def summarize_batch_task() -> list[str]:
             """실제 배치 요약 작업"""
@@ -162,13 +162,13 @@ class SummaryQueueHandler:
                 if not future.done():
                     future.set_exception(e)
                 raise
-        
+
         # 콜백 함수: 결과를 Future에 설정 (이중 안전장치)
         def result_callback(result: list[str]) -> None:
             """작업 완료 시 Future에 결과 설정"""
             if not future.done():
                 future.set_result(result)
-        
+
         # 큐에 작업 제출
         try:
             await self.dispatcher.submit_task(
@@ -179,7 +179,7 @@ class SummaryQueueHandler:
         except asyncio.QueueFull:
             logger.error("큐가 가득 찼습니다. 작업을 제출할 수 없습니다.")
             raise
-        
+
         # 결과 대기 (타임아웃 적용)
         try:
             if timeout:
@@ -193,7 +193,7 @@ class SummaryQueueHandler:
         except Exception as e:
             logger.error(f"배치 요약 작업 처리 중 오류: {e}", exc_info=True)
             raise
-    
+
     async def summarize_with_metadata(
         self,
         text: str,
@@ -221,17 +221,17 @@ class SummaryQueueHandler:
         """
         start_time = datetime.now()
         original_length = len(text)
-        
+
         summary = await self.summarize_text(
             text=text,
             max_length=max_length,
             min_length=min_length,
             timeout=timeout
         )
-        
+
         end_time = datetime.now()
         summary_length = len(summary)
-        
+
         return {
             "summary": summary,
             "original_length": original_length,

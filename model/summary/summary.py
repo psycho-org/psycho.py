@@ -9,12 +9,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # 리소스 사용량 출력용 (psutil 없으면 GPU만 표시)
 try:
     import psutil
+
     _PSUTIL_AVAILABLE = True
 except ImportError:
     _PSUTIL_AVAILABLE = False
@@ -27,16 +28,16 @@ def _get_resource_usage() -> str:
     # GPU 메모리 (CUDA)
     if torch.cuda.is_available():
         try:
-            alloc = torch.cuda.memory_allocated(0) / 1024**3
-            reserved = torch.cuda.memory_reserved(0) / 1024**3
-            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            alloc = torch.cuda.memory_allocated(0) / 1024 ** 3
+            reserved = torch.cuda.memory_reserved(0) / 1024 ** 3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024 ** 3
             lines.append(f"GPU 메모리: {alloc:.2f}GB 할당 / {reserved:.2f}GB 예약 / {total:.2f}GB 총량")
         except Exception:
             pass
     # 프로세스 RAM / CPU (psutil 있을 때만)
     if process is not None:
         try:
-            rss_gb = process.memory_info().rss / 1024**3
+            rss_gb = process.memory_info().rss / 1024 ** 3
             cpu_pct = process.cpu_percent(interval=0.1)
             lines.append(f"프로세스 RAM: {rss_gb:.2f}GB")
             lines.append(f"프로세스 CPU: {cpu_pct:.1f}%")
@@ -56,11 +57,11 @@ def print_resource_usage(label: str = "리소스") -> None:
 
 class SummaryAnalyzer:
     """EXAONE 모델을 사용한 텍스트 요약"""
-    
+
     # 요약 길이 상수
     DEFAULT_MAX_LENGTH = 150  # 최대 요약 길이 (토큰 수)
     DEFAULT_MIN_LENGTH = 30  # 최소 요약 길이 (토큰 수)
-    
+
     def __init__(
         self,
         model_name: str = "LGAI-EXAONE/EXAONE-4.0-1.2B",
@@ -78,7 +79,7 @@ class SummaryAnalyzer:
         # 비동기 처리를 위한 스레드 풀
         self.executor = executor or ThreadPoolExecutor(max_workers=max_workers)
         self.max_workers = max_workers
-        
+
         print(f"[로딩] EXAONE 모델 로딩 중: {model_name}")
         try:
             # Hugging Face Hub 타임아웃 설정 (기본값 10초 -> 300초로 증가)
@@ -86,12 +87,12 @@ class SummaryAnalyzer:
             import os
             os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
             os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # Windows symlink 경고 제거
-            
+
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             # pad_token이 없으면 eos_token을 사용
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-            
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
@@ -100,20 +101,20 @@ class SummaryAnalyzer:
             if self.device == "cpu":
                 self.model.to(self.device)
             self.model.eval()
-            
+
             # GPU 사용 확인 및 출력
             if self.device == "cuda":
                 model_device = next(self.model.parameters()).device
                 print(f"[완료] EXAONE 모델 로드 완료: {model_name}")
                 print(f"   모델 위치: {model_device}")
-                print(f"   메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f}GB 총량")
+                print(f"   메모리: {torch.cuda.get_device_properties(0).total_memory / 1024 ** 3:.2f}GB 총량")
             else:
                 print(f"[완료] EXAONE 모델 로드 완료: {model_name} (CPU 모드)")
             print_resource_usage("모델 로드 직후")
         except Exception as e:
             print(f"[실패] 모델 로드 실패: {e}")
             raise
-    
+
     def summarize(
         self,
         text: str,
@@ -133,24 +134,24 @@ class SummaryAnalyzer:
         """
         # 시간 측정 시작
         start_time = time.time()
-        
+
         # 상수 값 사용
         max_length = max_length if max_length is not None else self.DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else self.DEFAULT_MIN_LENGTH
         # EXAONE 모델은 채팅 템플릿 형식을 사용해야 함
         prompt = f"다음 텍스트를 간결하게 요약해주세요:\n\n{text}"
-        
+
         messages = [
             {"role": "user", "content": prompt}
         ]
-        
+
         # 채팅 템플릿 적용 (텍스트로 먼저 생성)
         formatted_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
+
         # 토크나이징
         inputs = self.tokenizer(
             formatted_prompt,
@@ -158,10 +159,10 @@ class SummaryAnalyzer:
             truncation=True,
             max_length=2048,
         )
-        
+
         input_ids = inputs["input_ids"].to(self.device)
         input_length = input_ids.shape[1]
-        
+
         with torch.no_grad():
             outputs = self.model.generate(
                 input_ids,
@@ -174,31 +175,31 @@ class SummaryAnalyzer:
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
-        
+
         # 생성된 텍스트 디코딩 (입력 프롬프트 제외)
         generated_text = self.tokenizer.decode(
             outputs[0][input_length:],
             skip_special_tokens=True
         )
-        
+
         # 불필요한 문자 제거 및 정리
         generated_text = generated_text.strip()
-        
+
         if generated_text.startswith("-") and all(c in "- " for c in generated_text[:20]):
             # 모델이 제대로 생성하지 못한 경우, 재시도 또는 기본 메시지 반환
             generated_text = "요약 생성에 실패했습니다. 텍스트가 너무 짧거나 모델이 요약을 생성하지 못했습니다."
-        
+
         # 시간 측정 종료
         end_time = time.time()
         elapsed_time = end_time - start_time
-        
+
         # 요약 길이, 시간, 리소스 출력
         print(f"요약 길이: {len(generated_text)}자")
         print(f"[완료] 요약 완료: {elapsed_time:.2f}초 소요")
         print_resource_usage("요약 직후")
-        
+
         return generated_text
-    
+
     def _summarize_internal(
         self,
         text: str,
@@ -213,29 +214,29 @@ class SummaryAnalyzer:
             (요약된 텍스트, 처리 시간)
         """
         start_time = time.time()
-        
+
         max_length = max_length if max_length is not None else self.DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else self.DEFAULT_MIN_LENGTH
-        
+
         prompt = f"다음 텍스트를 간결하게 요약해주세요:\n\n{text}"
         messages = [{"role": "user", "content": prompt}]
-        
+
         formatted_prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True
         )
-        
+
         inputs = self.tokenizer(
             formatted_prompt,
             return_tensors="pt",
             truncation=True,
             max_length=2048,
         )
-        
+
         input_ids = inputs["input_ids"].to(self.device)
         input_length = input_ids.shape[1]
-        
+
         with torch.no_grad():
             outputs = self.model.generate(
                 input_ids,
@@ -248,25 +249,25 @@ class SummaryAnalyzer:
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
-        
+
         generated_text = self.tokenizer.decode(
             outputs[0][input_length:],
             skip_special_tokens=True
         )
-        
+
         generated_text = generated_text.strip()
-        
+
         if generated_text.startswith("-") and all(c in "- " for c in generated_text[:20]):
             generated_text = "요약 생성에 실패했습니다. 텍스트가 너무 짧거나 모델이 요약을 생성하지 못했습니다."
-        
+
         elapsed_time = time.time() - start_time
-        
+
         if not silent:
             print(f"요약 길이: {len(generated_text)}자")
             print(f"[완료] 요약 완료: {elapsed_time:.2f}초 소요")
-        
+
         return generated_text, elapsed_time
-    
+
     async def summarize_async(
         self,
         text: str,
@@ -292,7 +293,7 @@ class SummaryAnalyzer:
             max_length,
             min_length,
         )
-    
+
     def summarize_batch(
         self,
         texts: list[str],
@@ -318,36 +319,37 @@ class SummaryAnalyzer:
         # 빈 입력에 대한 조기 반환 (ZeroDivisionError 방지)
         if not texts:
             return []
-        
+
         if len(texts) > max_batch_size:
             raise ValueError(
                 f"텍스트 개수는 최대 {max_batch_size}개까지 가능합니다. "
                 f"현재 {len(texts)}개가 제공되었습니다."
             )
-        
+
         # 배치 요약 시간 측정 시작
         batch_start_time = time.time()
         total_count = len(texts)
-        
+
         results = []
         for idx, text in enumerate(texts, start=1):
-            print(f"  [진행] {idx}/{total_count} ({idx*100//total_count}%)")
-            
+            print(f"  [진행] {idx}/{total_count} ({idx * 100 // total_count}%)")
+
             # 배치 처리용 내부 메서드 사용 (출력 억제)
             result, item_elapsed_time = self._summarize_internal(
                 text, max_length, min_length, silent=True
             )
-            
+
             # 각 항목의 처리 시간과 요약 길이 출력
             print(f"     처리 시간: {item_elapsed_time:.2f}초 | 요약 길이: {len(result)}자")
-            
+
             results.append(result)
-        
+
         # 배치 요약 시간 측정 종료 및 출력
         batch_end_time = time.time()
         batch_elapsed_time = batch_end_time - batch_start_time
-        print(f"[완료] 배치 요약 완료: {total_count}개 텍스트, 총 {batch_elapsed_time:.2f}초 소요 (평균 {batch_elapsed_time/total_count:.2f}초/개)")
-        
+        print(
+            f"[완료] 배치 요약 완료: {total_count}개 텍스트, 총 {batch_elapsed_time:.2f}초 소요 (평균 {batch_elapsed_time / total_count:.2f}초/개)")
+
         return results
 
 
@@ -370,14 +372,14 @@ def get_summary_analyzer(model_name: str = "LGAI-EXAONE/EXAONE-4.0-1.2B") -> Sum
         SummaryAnalyzer 인스턴스
     """
     global _summary_instances
-    
+
     # Double-checked locking 패턴으로 race condition 방지
     if model_name not in _summary_instances:
         with _init_lock:
             # Lock 내에서 다시 확인 (다른 스레드가 이미 생성했을 수 있음)
             if model_name not in _summary_instances:
                 _summary_instances[model_name] = SummaryAnalyzer(model_name=model_name)
-    
+
     return _summary_instances[model_name]
 
 
@@ -386,9 +388,9 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Summary 패키지 직접 테스트")
     print("=" * 60)
-    
+
     analyzer = SummaryAnalyzer()
-    
+
     test_text = """
     오늘 런칭 준비 회의 대신 메신저로 진행할게요. 이번 주 목표 정리부터!
 OK. 현재 남은 이슈는 결제 오류, 온보딩 문구 확정, CS 매뉴얼 초안입니다.
@@ -441,11 +443,11 @@ CS 매뉴얼은 준호가 내용, 소라가 톤/표현 수정. 마감은 목요�
 금요일 18시 결제 오류 해결 여부 공유, 목요일 17시 CS 매뉴얼 완료, 화요일 런칭.
 네. 추가 이슈 없으면 이 플랜으로 진행합니다. 다들 진행상황은 이 스레드에 계속 업데이트해주세요.
     """
-    
+
     print(f"\n원문: {test_text.strip()[:200]}...")
     print("-" * 60)
-    
+
     summary = analyzer.summarize(test_text.strip())
-    
+
     print(f"요약: {summary}")
     print("=" * 60)

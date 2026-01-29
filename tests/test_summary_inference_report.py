@@ -4,13 +4,14 @@
 - 테스트 실행 시 입력/출력이 출력되고, 리포트 파일로도 저장된다.
 """
 
-import os
 import json
-import pytest
+import os
 from datetime import datetime
 
+import pytest
+
 try:
-    from summary.summary import get_summary_analyzer
+    from model.summary.summary import get_summary_analyzer
 except OSError as e:
     if "DLL" in str(e) or "1114" in str(e) or "c10.dll" in str(e).lower():
         pytest.skip(
@@ -19,7 +20,6 @@ except OSError as e:
             allow_module_level=True,
         )
     raise
-
 
 # 리포트용 입력 케이스: (케이스 ID, 설명, 입력 텍스트)
 INFERENCE_REPORT_CASES = [
