@@ -149,7 +149,7 @@ class AsyncDispatcher:
 
         # Schedule the coroutine without blocking
         future = asyncio.run_coroutine_threadsafe(_async_submit(), loop)
-        
+
         # Try to get immediate result (check for immediate exceptions like RuntimeError)
         try:
             result = future.result(timeout=0.0)
@@ -171,8 +171,25 @@ class AsyncDispatcher:
             raise RuntimeError(f"Failed to submit task: {e}") from e
 
     async def wait_completion(self, timeout: Optional[float] = None) -> None:
-        """Wait for all queued tasks to complete"""
-        await self.queue.join()
+        """
+        Wait for all queued tasks to complete.
+        
+        Args:
+            timeout: Optional timeout in seconds. If provided, raises asyncio.TimeoutError
+                    if tasks don't complete within the timeout period.
+        
+        Raises:
+            asyncio.TimeoutError: If timeout is exceeded
+        """
+        if timeout is not None:
+            try:
+                await asyncio.wait_for(self.queue.join(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"Task completion timed out after {timeout}s")
+                raise
+        else:
+            await self.queue.join()
+
         logger.info("All tasks completed")
 
     async def shutdown(self, wait: bool = True, timeout: Optional[float] = None) -> None:
@@ -208,8 +225,21 @@ class AsyncDispatcher:
             try:
                 while not self.queue.is_empty:
                     try:
-                        # Use nowait to avoid blocking
-                        self.queue._queue.get_nowait()
+                        # Get and cleanup queue item
+                        item = self.queue._queue.get_nowait()
+
+                        # Mark task as done (required for queue.join())
+                        self.queue.task_done()
+
+                        # Cleanup coroutine/task if present
+                        if item is not None:
+                            coro, callback = item
+                            # Close coroutine to prevent ResourceWarning
+                            if hasattr(coro, 'close'):
+                                try:
+                                    coro.close()
+                                except Exception as close_error:
+                                    logger.debug(f"Error closing coroutine: {close_error}")
                     except asyncio.QueueEmpty:
                         break
             except Exception as e:
@@ -233,7 +263,17 @@ class AsyncDispatcher:
                 try:
                     while not self.queue.is_empty:
                         try:
-                            self.queue._queue.get_nowait()
+                            item = self.queue._queue.get_nowait()
+                            self.queue.task_done()
+
+                            # Cleanup coroutine if present
+                            if item is not None:
+                                coro, callback = item
+                                if hasattr(coro, 'close'):
+                                    try:
+                                        coro.close()
+                                    except Exception as close_error:
+                                        logger.debug(f"Error closing coroutine: {close_error}")
                         except asyncio.QueueEmpty:
                             break
                     self.queue._queue.put_nowait(None)
