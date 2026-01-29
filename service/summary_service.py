@@ -95,10 +95,13 @@ class SummaryService:
             min_length=min_length,
         )
         
-        message_count = len([
-            m for m in self.chat_service.messages
-            if m["channel_id"] == channel_id
-        ][-limit:])
+        # 메시지 개수 계산: limit까지만 카운트 (효율적)
+        message_count = 0
+        for m in self.chat_service.messages:
+            if m["channel_id"] == channel_id:
+                message_count += 1
+                if message_count >= limit:
+                    break
         
         return {
             "summary": summary,
