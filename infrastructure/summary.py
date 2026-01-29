@@ -5,6 +5,7 @@ LGAI EXAONE 모델을 사용한 텍스트 요약
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -346,15 +347,34 @@ class SummaryAnalyzer:
         return results
 
 
-_summary_instance: SummaryAnalyzer | None = None
+# 싱글톤 인스턴스 저장소 (모델명별로 관리)
+_summary_instances: dict[str, SummaryAnalyzer] = {}
+_init_lock = threading.Lock()
 
 
-def get_summary_analyzer() -> SummaryAnalyzer:
-    """전역 요약 분석기 인스턴스 반환"""
-    global _summary_instance
-    if _summary_instance is None:
-        _summary_instance = SummaryAnalyzer()
-    return _summary_instance
+def get_summary_analyzer(model_name: str = "LGAI-EXAONE/EXAONE-4.0-1.2B") -> SummaryAnalyzer:
+    """
+    전역 요약 분석기 인스턴스 반환 (thread-safe)
+    
+    같은 model_name에 대해서는 싱글톤으로 동작하지만,
+    다른 model_name을 사용하면 여러 인스턴스를 생성할 수 있습니다.
+    
+    Args:
+        model_name: 사용할 모델 이름 (기본값: "LGAI-EXAONE/EXAONE-4.0-1.2B")
+    
+    Returns:
+        SummaryAnalyzer 인스턴스
+    """
+    global _summary_instances
+    
+    # Double-checked locking 패턴으로 race condition 방지
+    if model_name not in _summary_instances:
+        with _init_lock:
+            # Lock 내에서 다시 확인 (다른 스레드가 이미 생성했을 수 있음)
+            if model_name not in _summary_instances:
+                _summary_instances[model_name] = SummaryAnalyzer(model_name=model_name)
+    
+    return _summary_instances[model_name]
 
 
 if __name__ == "__main__":
