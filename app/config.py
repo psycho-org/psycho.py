@@ -35,8 +35,14 @@ class Settings(BaseSettings):
     server_reload: bool = True
     
     # Dispatcher settings
-    dispatcher_max_workers: int = 5
-    dispatcher_max_queue_size: int = 100
+    dispatcher_max_workers: int = Field(
+        default=5,
+        ge=1  # Minimum 1 worker
+    )
+    dispatcher_max_queue_size: int = Field(
+        default=100,
+        ge=1  # Minimum queue size of 1
+    )
     dispatcher_task_timeout: float = Field(
         default=60.0,
         ge=1.0,    # Minimum 1 second
