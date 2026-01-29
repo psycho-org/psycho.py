@@ -31,12 +31,27 @@ class Worker:
         return await coro
 
     async def _execute_callback(self, callback: Callable, result: Any) -> None:
-        """Execute callback with error handling"""
+        """Execute callback with error handling
+        
+        Handles both sync and async callbacks, including:
+        - Regular async functions
+        - Regular sync functions
+        - Wrapped async functions (lambdas, decorators)
+        - Wrapped sync functions (lambdas, decorators)
+        """
         try:
-            if asyncio.iscoroutinefunction(callback):
-                await callback(result)
-            else:
-                callback(result)
+            # Call the callback and capture the result
+            # This works for both sync and async callables
+            callback_result = callback(result)
+            
+            # Check if the return value is awaitable (coroutine, Task, Future, etc.)
+            # This approach detects wrapped async functions that iscoroutinefunction would miss
+            if asyncio.iscoroutine(callback_result) or asyncio.isfuture(callback_result):
+                # Return value is awaitable, so await it
+                await callback_result
+            elif hasattr(callback_result, '__await__'):
+                # Fallback for other awaitable objects
+                await callback_result
         except Exception as cb_error:
             logger.error(
                 f"Worker {self.worker_id} callback error: {cb_error}",
