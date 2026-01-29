@@ -306,29 +306,32 @@ async def process(
 # tests/test_api.py
 import pytest
 from httpx import AsyncClient
-from app import create_app
+from main import app  # ✅ Import actual app instance from main
 from app.services.dispatcher import AsyncDispatcher
 
 
 @pytest.mark.asyncio
 async def test_process_endpoint():
     """Async test with proper await pattern"""
-    # Mock dispatcher
+    # Create mock dispatcher
     mock_dispatcher = AsyncDispatcher(max_workers=1)
     await mock_dispatcher.start()  # ✅ await is valid in async function
 
-    # Create app and set dispatcher
-    app = create_app()
-    app.state.dispatcher = mock_dispatcher
+    # Attach mock dispatcher to app state
+    original_dispatcher = app.state.dispatcher  # Save original
+    app.state.dispatcher = mock_dispatcher  # ✅ Set mock dispatcher
 
-    # Use AsyncClient for async HTTP requests
-    async with AsyncClient(app=app, base_url="http://test") as client:
-        response = await client.post("/api/process", json={"data": "test"})
+    try:
+        # Use AsyncClient for async HTTP requests
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            response = await client.post("/api/summarize", json={"messages": ["test"]})
 
-    assert response.status_code == 200
-
-    # Cleanup
-    await mock_dispatcher.shutdown()
+        assert response.status_code == 200
+        assert "summary" in response.json()
+    finally:
+        # Cleanup: restore original dispatcher and shutdown mock
+        app.state.dispatcher = original_dispatcher  # ✅ Restore original
+        await mock_dispatcher.shutdown()
 ```
 
 ## 요약
