@@ -1,6 +1,7 @@
 """Main dispatcher module"""
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 from typing import Callable, Coroutine, Optional, Any
@@ -113,12 +114,15 @@ class AsyncDispatcher:
         Submit a task to the queue synchronously (non-blocking).
         Useful when calling from sync context.
         
+        This method returns immediately after scheduling the task,
+        it does NOT wait for task completion.
+        
         Args:
             coro: Coroutine to execute
             callback: Optional callback to invoke with the result
             
         Returns:
-            True if task was submitted successfully
+            True if task was accepted (submitted or scheduled)
             
         Raises:
             RuntimeError: If dispatcher is not running
@@ -130,19 +134,43 @@ class AsyncDispatcher:
             # Safe to capture loop reference within lock
             loop = self._loop
 
-        async def _async_submit():
-            """Async wrapper for submit_task"""
-            return await self.submit_task(coro, callback, block=True)
+        async def _async_submit() -> bool:
+            """Async wrapper for submit_task with non-blocking submission"""
+            return await self.submit_task(coro, callback, block=False)
 
+        def _handle_future_exception(future: concurrent.futures.Future) -> None:
+            """Callback to log any exceptions from async task submission"""
+            try:
+                future.result()
+            except asyncio.QueueFull:
+                logger.warning("Task submission failed: queue full")
+            except Exception as e:
+                logger.error(f"Task submission failed: {e}", exc_info=True)
+
+        # Schedule the coroutine without blocking
+        future = asyncio.run_coroutine_threadsafe(_async_submit(), loop)
+        
+        # Try to get immediate result (check for immediate exceptions like RuntimeError)
         try:
-            # Use run_coroutine_threadsafe to execute async operation from sync context
-            future = asyncio.run_coroutine_threadsafe(_async_submit(), loop)
-            return future.result(timeout=30.0)  # Generous timeout for ThreadPoolExecutor environments
+            result = future.result(timeout=0.0)
+            logger.debug("Task submitted successfully")
+            return result
+        except concurrent.futures.TimeoutError:
+            # Task submission is still pending - this is expected
+            # Attach callback to handle exceptions asynchronously
+            future.add_done_callback(_handle_future_exception)
+            logger.debug("Task scheduled for submission")
+            return True  # Task was accepted and is being processed
+        except asyncio.QueueFull as e:
+            # Queue is full - propagate immediately
+            logger.warning("Cannot submit task: queue is full")
+            raise
         except Exception as e:
-            logger.error(f"Failed to submit task: {e}")
+            # Other errors should be propagated
+            logger.error(f"Failed to submit task: {e}", exc_info=True)
             raise RuntimeError(f"Failed to submit task: {e}") from e
 
-    async def wait_completion(self) -> None:
+    async def wait_completion(self, timeout: Optional[float] = None) -> None:
         """Wait for all queued tasks to complete"""
         await self.queue.join()
         logger.info("All tasks completed")
@@ -173,18 +201,56 @@ class AsyncDispatcher:
                     logger.warning(f"Shutdown timed out after {timeout}s")
             else:
                 await self.wait_completion()
+        else:
+            # When wait=False, drain queue to prevent deadlock when enqueuing sentinels
+            # If queue is full and workers are stopped, put() will block forever
+            logger.debug("Draining queue before shutdown...")
+            try:
+                while not self.queue.is_empty:
+                    try:
+                        # Use nowait to avoid blocking
+                        self.queue._queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+            except Exception as e:
+                logger.warning(f"Error draining queue: {e}")
 
         # Stop all workers
         for worker in workers_to_stop:
             worker.stop()
 
-        # Send shutdown signals
+        # Send shutdown signals (use put_nowait to avoid blocking)
+        sentinels_sent = 0
         for _ in workers_to_stop:
-            await self.queue._queue.put(None)
+            try:
+                self.queue._queue.put_nowait(None)
+                sentinels_sent += 1
+            except asyncio.QueueFull:
+                logger.warning(
+                    f"Could not enqueue sentinel signal (sent {sentinels_sent}/{len(workers_to_stop)})"
+                )
+                # Try draining once more and retry
+                try:
+                    while not self.queue.is_empty:
+                        try:
+                            self.queue._queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                    self.queue._queue.put_nowait(None)
+                    sentinels_sent += 1
+                except Exception as drain_error:
+                    logger.warning(f"Failed to send sentinel after drain: {drain_error}")
 
-        # Wait for workers to finish
+        # Wait for workers to finish with timeout to prevent deadlock
         worker_tasks = [w._task for w in workers_to_stop if w._task]
-        await asyncio.gather(*worker_tasks, return_exceptions=True)
+        if worker_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*worker_tasks, return_exceptions=True),
+                    timeout=5.0  # Prevent indefinite wait
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Timeout waiting for workers to finish")
 
         with self._state_lock:
             self._workers.clear()

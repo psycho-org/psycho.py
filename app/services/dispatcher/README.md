@@ -4,7 +4,7 @@ Dispatcher를 읽기 쉽게 여러 파일로 분리했습니다.
 
 ## 파일 구조
 
-```
+```text
 app/services/dispatcher/
 ├── __init__.py           # 패키지 진입점
 ├── async_dispatcher.py   # 메인 디스패처 (조정자)
@@ -59,7 +59,7 @@ app/services/dispatcher/
 
 ## 의존성 관계
 
-```
+```text
 AsyncDispatcher
     ├── TaskQueue (1개)
     │   └── asyncio.Queue
@@ -110,7 +110,7 @@ worker.start()
 
 ### 2. 유지보수 용이
 
-```
+```text
 워커 로직 수정 → worker.py만 수정
 큐 로직 수정 → task_queue.py만 수정
 전체 흐름 수정 → async_dispatcher.py만 수정
@@ -208,12 +208,12 @@ dispatcher.queue.size  # TaskQueue 래퍼 사용
 
 ## 파일 크기 비교
 
-| 파일                  | 이전       | 이후       |
-|---------------------|----------|----------|
-| dispatcher.py       | 256줄     | -        |
-| async_dispatcher.py | -        | 190줄     |
-| task_queue.py       | -        | 100줄     |
-| worker.py           | -        | 101줄     |
+| 파일                  |    이전    |    이후    |
+|:--------------------|:--------:|:--------:|
+| dispatcher.py       |   256줄   |    -     |
+| async_dispatcher.py |    -     |   190줄   |
+| task_queue.py       |    -     |   100줄   |
+| worker.py           |    -     |   101줄   |
 | **총합**              | **256줄** | **391줄** |
 
 > 줄 수는 늘었지만, 각 파일이 짧아져서 훨씬 읽기 쉽습니다!

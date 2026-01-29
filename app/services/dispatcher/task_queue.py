@@ -46,6 +46,8 @@ class TaskQueue:
                 self._queue.put_nowait(task_item)
             except asyncio.QueueFull:
                 logger.warning("Queue is full, task rejected")
+                # Close the coroutine to prevent RuntimeWarning
+                coro.close()
                 raise
 
         logger.debug(f"Task added. Queue size: {self.size}")
@@ -70,6 +72,8 @@ class TaskQueue:
             return True
         except asyncio.QueueFull:
             logger.warning("Queue is full, task rejected")
+            # Close the coroutine to prevent RuntimeWarning
+            coro.close()
             raise
 
     async def get(self) -> Optional[Tuple]:

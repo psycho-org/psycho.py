@@ -21,8 +21,11 @@ app.state.dispatcher에 저장 ← 여기가 핵심!
 ```python
 # main.py
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+
 from app.services.dispatcher import AsyncDispatcher
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,11 +37,12 @@ async def lifespan(app: FastAPI):
     )
     await dispatcher.start()
     app.state.dispatcher = dispatcher  # ✅ app.state에 저장
-    
+
     yield
-    
+
     # 앱 종료 시
     await app.state.dispatcher.shutdown()
+
 
 app = FastAPI(lifespan=lifespan)  # ✅ lifespan 연결
 ```
@@ -53,14 +57,15 @@ from fastapi import APIRouter, Request
 
 router = APIRouter()
 
+
 @router.post("/your-endpoint")
 async def your_endpoint(request: Request, data: dict):
     # ✅ request.app.state로 접근
     dispatcher = request.app.state.dispatcher
-    
+
     # 작업 제출
     await dispatcher.submit_task(your_task())
-    
+
     return {"status": "queued"}
 ```
 
@@ -74,6 +79,7 @@ async def your_endpoint(request: Request, data: dict):
 # 나쁜 예시
 dispatcher = None  # Global
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dispatcher  # 🚫 global 사용
@@ -81,6 +87,7 @@ async def lifespan(app: FastAPI):
 ```
 
 **문제**:
+
 - 테스트하기 어려움
 - 멀티프로세스에서 문제
 - 코드가 지저분함
@@ -95,6 +102,7 @@ async def lifespan(app: FastAPI):
 ```
 
 **장점**:
+
 - Global 불필요
 - 테스트 용이
 - FastAPI 권장 방식
@@ -108,14 +116,14 @@ async def lifespan(app: FastAPI):
 @router.post("/process")
 async def process(request: Request, data: dict):
     dispatcher = request.app.state.dispatcher
-    
+
     async def task():
         # 시간이 오래 걸리는 작업
         result = await heavy_processing(data)
         return result
-    
+
     await dispatcher.submit_task(task())
-    
+
     return {"status": "queued"}
 ```
 
@@ -125,18 +133,18 @@ async def process(request: Request, data: dict):
 @router.post("/process")
 async def process(request: Request, data: dict):
     dispatcher = request.app.state.dispatcher
-    
+
     # 1. Dispatcher 사용 가능 체크
     if dispatcher is None or not dispatcher.is_running:
         raise HTTPException(status_code=503, detail="Service unavailable")
-    
+
     # 2. 큐 가득 참 체크
     if dispatcher.is_queue_full:
         raise HTTPException(status_code=429, detail="Queue full")
-    
+
     # 3. 작업 제출
     await dispatcher.submit_task(task(), block=False)
-    
+
     return {"status": "queued"}
 ```
 
@@ -146,15 +154,15 @@ async def process(request: Request, data: dict):
 @router.post("/process")
 async def process(request: Request, data: dict):
     dispatcher = request.app.state.dispatcher
-    
+
     def on_complete(result):
         # DB에 결과 저장
         save_to_db(result)
         # 웹훅 호출
         send_webhook(result)
-    
+
     await dispatcher.submit_task(task(), callback=on_complete)
-    
+
     return {"status": "queued"}
 ```
 
@@ -178,13 +186,14 @@ from fastapi import APIRouter, Request
 
 router = APIRouter()
 
+
 @router.post("/summarize")
 async def summarize(request: Request, messages: list):
     dispatcher = request.app.state.dispatcher
-    
+
     async def summarize_task():
         return await ai_summarize(messages)
-    
+
     await dispatcher.submit_task(summarize_task())
     return {"status": "processing"}
 ```
@@ -196,13 +205,14 @@ from fastapi import APIRouter, Request
 
 router = APIRouter()
 
+
 @router.post("/decisions")
 async def decisions(request: Request, messages: list):
     dispatcher = request.app.state.dispatcher  # ✅ 같은 dispatcher!
-    
+
     async def extract_decisions():
         return await ai_extract_decisions(messages)
-    
+
     await dispatcher.submit_task(extract_decisions())
     return {"status": "processing"}
 ```
@@ -214,13 +224,14 @@ from fastapi import APIRouter, Request
 
 router = APIRouter()
 
+
 @router.post("/catchup")
 async def catchup(request: Request, messages: list):
     dispatcher = request.app.state.dispatcher  # ✅ 같은 dispatcher!
-    
+
     async def generate_catchup():
         return await ai_generate_catchup(messages)
-    
+
     await dispatcher.submit_task(generate_catchup())
     return {"status": "processing"}
 ```
@@ -235,17 +246,20 @@ async def catchup(request: Request, messages: list):
 # app/utils/dispatcher_helper.py
 from fastapi import HTTPException, Request
 
+
 def get_dispatcher(request: Request):
     """Dispatcher를 안전하게 가져오는 헬퍼 함수"""
     dispatcher = request.app.state.dispatcher
-    
+
     if dispatcher is None or not dispatcher.is_running:
         raise HTTPException(status_code=503, detail="Service unavailable")
-    
+
     return dispatcher
+
 
 # 사용
 from app.utils.dispatcher_helper import get_dispatcher
+
 
 @router.post("/process")
 async def process(request: Request, data: dict):
@@ -262,22 +276,25 @@ FastAPI의 Depends를 사용하면 더 깔끔:
 # app/dependencies.py
 from fastapi import Depends, HTTPException, Request
 
+
 async def get_dispatcher(request: Request):
     """Dispatcher dependency"""
     dispatcher = request.app.state.dispatcher
-    
+
     if dispatcher is None or not dispatcher.is_running:
         raise HTTPException(status_code=503, detail="Service unavailable")
-    
+
     return dispatcher
+
 
 # 사용
 from app.dependencies import get_dispatcher
 
+
 @router.post("/process")
 async def process(
     data: dict,
-    dispatcher = Depends(get_dispatcher)  # ✅ 자동 주입!
+    dispatcher=Depends(get_dispatcher)  # ✅ 자동 주입!
 ):
     await dispatcher.submit_task(task())
     return {"status": "queued"}
@@ -287,21 +304,31 @@ async def process(
 
 ```python
 # tests/test_api.py
-from fastapi.testclient import TestClient
+import pytest
+from httpx import AsyncClient
+from app import create_app
 from app.services.dispatcher import AsyncDispatcher
 
-def test_process_endpoint():
+
+@pytest.mark.asyncio
+async def test_process_endpoint():
+    """Async test with proper await pattern"""
     # Mock dispatcher
     mock_dispatcher = AsyncDispatcher(max_workers=1)
-    await mock_dispatcher.start()
-    
-    # app.state에 설정
+    await mock_dispatcher.start()  # ✅ await is valid in async function
+
+    # Create app and set dispatcher
+    app = create_app()
     app.state.dispatcher = mock_dispatcher
-    
-    client = TestClient(app)
-    response = client.post("/api/process", json={"data": "test"})
-    
+
+    # Use AsyncClient for async HTTP requests
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.post("/api/process", json={"data": "test"})
+
     assert response.status_code == 200
+
+    # Cleanup
+    await mock_dispatcher.shutdown()
 ```
 
 ## 요약
