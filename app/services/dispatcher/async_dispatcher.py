@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 from typing import Callable, Coroutine, Optional, Any
 
 from .task_queue import TaskQueue
@@ -43,19 +44,22 @@ class AsyncDispatcher:
 
         # Components
         self.queue = TaskQueue(max_size=max_queue_size)
-        self.workers: list[Worker] = []
+        self._workers: list[Worker] = []
 
-        # State
+        # State (protected by _state_lock)
         self._running = False
-        self._lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._state_lock = threading.Lock()  # Thread-safe lock for all state
 
     async def start(self) -> None:
         """Start the worker pool"""
-        async with self._lock:
+        with self._state_lock:
             if self._running:
                 logger.warning("Dispatcher already running")
                 return
 
+            # Store event loop for thread-safe operations
+            self._loop = asyncio.get_running_loop()
             self._running = True
 
             # Create and start workers
@@ -66,7 +70,7 @@ class AsyncDispatcher:
                     task_timeout=self.task_timeout
                 )
                 worker.start()
-                self.workers.append(worker)
+                self._workers.append(worker)
 
             logger.info(
                 f"Dispatcher started with {self.max_workers} workers, "
@@ -77,7 +81,7 @@ class AsyncDispatcher:
         self,
         coro: Coroutine[Any, Any, Any],
         callback: Optional[Callable[[Any], Any]] = None,
-        block: bool = True
+        block: bool = False
     ) -> bool:
         """
         Submit a task to the queue.
@@ -94,8 +98,9 @@ class AsyncDispatcher:
             RuntimeError: If dispatcher is not running
             asyncio.QueueFull: If queue is full and block=False
         """
-        if not self._running:
-            raise RuntimeError("Dispatcher not started. Call start() first.")
+        with self._state_lock:
+            if not self._running:
+                raise RuntimeError("Dispatcher not started. Call start() first.")
 
         return await self.queue.put(coro, callback, block)
 
@@ -111,18 +116,31 @@ class AsyncDispatcher:
         Args:
             coro: Coroutine to execute
             callback: Optional callback to invoke with the result
-        
+            
         Returns:
             True if task was submitted successfully
-        
+            
         Raises:
             RuntimeError: If dispatcher is not running
             asyncio.QueueFull: If queue is full
         """
-        if not self._running:
-            raise RuntimeError("Dispatcher not started. Call start() first.")
+        with self._state_lock:
+            if not self._running or self._loop is None:
+                raise RuntimeError("Dispatcher not started. Call start() first.")
+            # Safe to capture loop reference within lock
+            loop = self._loop
 
-        return self.queue.put_nowait(coro, callback)
+        async def _async_submit():
+            """Async wrapper for submit_task"""
+            return await self.submit_task(coro, callback, block=True)
+
+        try:
+            # Use run_coroutine_threadsafe to execute async operation from sync context
+            future = asyncio.run_coroutine_threadsafe(_async_submit(), loop)
+            return future.result(timeout=30.0)  # Generous timeout for ThreadPoolExecutor environments
+        except Exception as e:
+            logger.error(f"Failed to submit task: {e}")
+            raise RuntimeError(f"Failed to submit task: {e}") from e
 
     async def wait_completion(self) -> None:
         """Wait for all queued tasks to complete"""
@@ -137,37 +155,42 @@ class AsyncDispatcher:
             wait: If True, wait for all queued tasks to complete before shutting down
             timeout: Optional timeout for shutdown operation
         """
-        async with self._lock:
-            if not self._running:
+        with self._state_lock:
+            if not self._running or self._loop is None:
                 return
 
-            logger.info("Shutting down dispatcher...")
-
-            if wait:
-                if timeout:
-                    try:
-                        await asyncio.wait_for(self.wait_completion(), timeout=timeout)
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Shutdown timed out after {timeout}s")
-                else:
-                    await self.wait_completion()
-
-            # Stop all workers
-            for worker in self.workers:
-                worker.stop()
-
-            # Send shutdown signals
-            for _ in self.workers:
-                await self.queue._queue.put(None)
-
-            # Wait for workers to finish
-            worker_tasks = [w._task for w in self.workers if w._task]
-            await asyncio.gather(*worker_tasks, return_exceptions=True)
-
-            self.workers.clear()
+            # Capture workers reference and mark as shutting down
+            workers_to_stop = self._workers.copy()
             self._running = False
 
-            logger.info("Dispatcher shutdown complete")
+        logger.info("Shutting down dispatcher...")
+
+        if wait:
+            if timeout:
+                try:
+                    await asyncio.wait_for(self.wait_completion(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Shutdown timed out after {timeout}s")
+            else:
+                await self.wait_completion()
+
+        # Stop all workers
+        for worker in workers_to_stop:
+            worker.stop()
+
+        # Send shutdown signals
+        for _ in workers_to_stop:
+            await self.queue._queue.put(None)
+
+        # Wait for workers to finish
+        worker_tasks = [w._task for w in workers_to_stop if w._task]
+        await asyncio.gather(*worker_tasks, return_exceptions=True)
+
+        with self._state_lock:
+            self._workers.clear()
+            self._loop = None  # Clear event loop reference
+
+        logger.info("Dispatcher shutdown complete")
 
     @property
     def queue_size(self) -> int:
@@ -180,9 +203,16 @@ class AsyncDispatcher:
         return self.queue.max_size
 
     @property
+    def workers(self) -> list[Worker]:
+        """Get a copy of workers list (thread-safe read)"""
+        with self._state_lock:
+            return self._workers.copy()
+
+    @property
     def is_running(self) -> bool:
         """Check if dispatcher is running"""
-        return self._running
+        with self._state_lock:
+            return self._running
 
     @property
     def is_queue_full(self) -> bool:

@@ -225,13 +225,3 @@ dispatcher.queue.size  # TaskQueue 래퍼 사용
 3. **Metrics 추가**: 성능 모니터링
 4. **Retry 로직**: 실패한 작업 재시도
 
-## 백업
-
-기존 파일은 `dispatcher_old.py`로 백업되어 있습니다.
-
-필요하면 언제든지 롤백 가능:
-
-```bash
-mv app/services/dispatcher_old.py app/services/dispatcher.py
-rm -rf app/services/dispatcher/
-```

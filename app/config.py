@@ -1,6 +1,6 @@
 """Application configuration and security settings"""
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -37,8 +37,34 @@ class Settings(BaseSettings):
     # Dispatcher settings
     dispatcher_max_workers: int = 5
     dispatcher_max_queue_size: int = 100
-    dispatcher_task_timeout: float = 60.0
-    dispatcher_shutdown_timeout: float = 30.0
+    dispatcher_task_timeout: float = Field(
+        default=60.0,
+        ge=1.0,    # Minimum 1 second
+        le=300.0   # Maximum 5 minutes
+    )
+    dispatcher_shutdown_timeout: float = Field(
+        default=30.0,
+        ge=1.0,    # Minimum 1 second  
+        le=120.0   # Maximum 2 minutes
+    )
+    
+    @field_validator('dispatcher_task_timeout')
+    @classmethod
+    def validate_task_timeout(cls, v):
+        if v > 300:
+            raise ValueError("Task timeout cannot exceed 300 seconds (5 minutes)")
+        if v < 1:
+            raise ValueError("Task timeout must be at least 1 second")
+        return v
+        
+    @field_validator('dispatcher_shutdown_timeout')
+    @classmethod
+    def validate_shutdown_timeout(cls, v):
+        if v > 120:
+            raise ValueError("Shutdown timeout cannot exceed 120 seconds (2 minutes)")
+        if v < 1:
+            raise ValueError("Shutdown timeout must be at least 1 second")
+        return v
 
     class Config:
         env_file = ".env"

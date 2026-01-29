@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 from typing import Callable, Coroutine, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class Worker:
         self.task_timeout = task_timeout
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._running_lock = threading.Lock()  # Thread-safe access to _running
 
     async def _execute_task(self, coro: Coroutine) -> Any:
         """Execute task with optional timeout"""
@@ -43,10 +45,11 @@ class Worker:
 
     async def run(self) -> None:
         """Main worker loop"""
-        self._running = True
+        with self._running_lock:
+            self._running = True
         logger.info(f"Worker {self.worker_id} started")
 
-        while self._running:
+        while self._is_running():
             try:
                 # Get task from queue with timeout
                 task_item = await asyncio.wait_for(
@@ -91,9 +94,15 @@ class Worker:
 
         logger.info(f"Worker {self.worker_id} stopped")
 
+    def _is_running(self) -> bool:
+        """Thread-safe check if worker is running"""
+        with self._running_lock:
+            return self._running
+
     def stop(self) -> None:
-        """Stop the worker"""
-        self._running = False
+        """Stop the worker (thread-safe)"""
+        with self._running_lock:
+            self._running = False
 
     def start(self) -> asyncio.Task:
         """Start the worker and return the task"""
