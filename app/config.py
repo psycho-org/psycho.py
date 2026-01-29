@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = 8000
     server_reload: bool = True
+    
+    # Dispatcher settings
+    dispatcher_max_workers: int = 5
+    dispatcher_max_queue_size: int = 100
+    dispatcher_task_timeout: float = 60.0
+    dispatcher_shutdown_timeout: float = 30.0
 
     class Config:
         env_file = ".env"
