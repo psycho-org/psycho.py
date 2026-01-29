@@ -13,12 +13,16 @@ dependencies = [
     "uvicorn>=0.40.0",
     "transformers>=4.30.0",
     "torch>=2.0.0",
+    "accelerate>=0.20.0",  # CUDA device_map="auto" 사용 시 필요
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+]
+monitor = [
+    "psutil>=5.9.0",  # 리소스 사용량(CPU, RAM) 출력용
 ]
 
 [tool.setuptools]
@@ -29,6 +33,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"  # asyncio 테스트 자동 감지 (STRICT보다 유연함)
 addopts = [
     "-v",
     "--tb=short",

@@ -11,6 +11,47 @@ from concurrent.futures import ThreadPoolExecutor
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
+# 리소스 사용량 출력용 (psutil 없으면 GPU만 표시)
+try:
+    import psutil
+    _PSUTIL_AVAILABLE = True
+except ImportError:
+    _PSUTIL_AVAILABLE = False
+
+
+def _get_resource_usage() -> str:
+    """현재 프로세스의 리소스 사용량 문자열 반환 (GPU 메모리, RAM, CPU)."""
+    lines = []
+    process = psutil.Process() if _PSUTIL_AVAILABLE else None
+    # GPU 메모리 (CUDA)
+    if torch.cuda.is_available():
+        try:
+            alloc = torch.cuda.memory_allocated(0) / 1024**3
+            reserved = torch.cuda.memory_reserved(0) / 1024**3
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            lines.append(f"GPU 메모리: {alloc:.2f}GB 할당 / {reserved:.2f}GB 예약 / {total:.2f}GB 총량")
+        except Exception:
+            pass
+    # 프로세스 RAM / CPU (psutil 있을 때만)
+    if process is not None:
+        try:
+            rss_gb = process.memory_info().rss / 1024**3
+            cpu_pct = process.cpu_percent(interval=0.1)
+            lines.append(f"프로세스 RAM: {rss_gb:.2f}GB")
+            lines.append(f"프로세스 CPU: {cpu_pct:.1f}%")
+        except Exception:
+            pass
+    return " | ".join(lines) if lines else "(리소스 정보 없음)"
+
+
+def print_resource_usage(label: str = "리소스") -> None:
+    """리소스 사용량을 출력한다. pytest 실행 시에만 출력 (PSYCHO_PYTEST=1)."""
+    import os
+    if os.environ.get("PSYCHO_PYTEST") != "1":
+        return
+    usage = _get_resource_usage()
+    print(f"[{label}] {usage}")
+
 
 class SummaryAnalyzer:
     """EXAONE 모델을 사용한 텍스트 요약"""
@@ -37,8 +78,14 @@ class SummaryAnalyzer:
         self.executor = executor or ThreadPoolExecutor(max_workers=max_workers)
         self.max_workers = max_workers
         
-        print(f"🚀 EXAONE 모델 로딩 중: {model_name}")
+        print(f"[로딩] EXAONE 모델 로딩 중: {model_name}")
         try:
+            # Hugging Face Hub 타임아웃 설정 (기본값 10초 -> 300초로 증가)
+            # 환경 변수로만 설정 (from_pretrained의 timeout 파라미터는 일부 모델에서 지원 안 함)
+            import os
+            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # Windows symlink 경고 제거
+            
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             # pad_token이 없으면 eos_token을 사용
             if self.tokenizer.pad_token is None:
@@ -52,9 +99,18 @@ class SummaryAnalyzer:
             if self.device == "cpu":
                 self.model.to(self.device)
             self.model.eval()
-            print(f"✅ EXAONE 모델 로드 완료: {model_name}")
+            
+            # GPU 사용 확인 및 출력
+            if self.device == "cuda":
+                model_device = next(self.model.parameters()).device
+                print(f"[완료] EXAONE 모델 로드 완료: {model_name}")
+                print(f"   모델 위치: {model_device}")
+                print(f"   메모리: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f}GB 총량")
+            else:
+                print(f"[완료] EXAONE 모델 로드 완료: {model_name} (CPU 모드)")
+            print_resource_usage("모델 로드 직후")
         except Exception as e:
-            print(f"❌ 모델 로드 실패: {e}")
+            print(f"[실패] 모델 로드 실패: {e}")
             raise
     
     def summarize(
@@ -135,9 +191,10 @@ class SummaryAnalyzer:
         end_time = time.time()
         elapsed_time = end_time - start_time
         
-        # 요약 길이와 시간 정보 출력
+        # 요약 길이, 시간, 리소스 출력
         print(f"요약 길이: {len(generated_text)}자")
-        print(f"⏱️ 요약 완료: {elapsed_time:.2f}초 소요")
+        print(f"[완료] 요약 완료: {elapsed_time:.2f}초 소요")
+        print_resource_usage("요약 직후")
         
         return generated_text
     
@@ -205,7 +262,7 @@ class SummaryAnalyzer:
         
         if not silent:
             print(f"요약 길이: {len(generated_text)}자")
-            print(f"⏱️ 요약 완료: {elapsed_time:.2f}초 소요")
+            print(f"[완료] 요약 완료: {elapsed_time:.2f}초 소요")
         
         return generated_text, elapsed_time
     
@@ -269,7 +326,7 @@ class SummaryAnalyzer:
         
         results = []
         for idx, text in enumerate(texts, start=1):
-            print(f"  📝 진행 중: {idx}/{total_count} ({idx*100//total_count}%)")
+            print(f"  [진행] {idx}/{total_count} ({idx*100//total_count}%)")
             
             # 배치 처리용 내부 메서드 사용 (출력 억제)
             result, item_elapsed_time = self._summarize_internal(
@@ -277,14 +334,14 @@ class SummaryAnalyzer:
             )
             
             # 각 항목의 처리 시간과 요약 길이 출력
-            print(f"     ⏱️ 처리 시간: {item_elapsed_time:.2f}초 | 📏 요약 길이: {len(result)}자")
+            print(f"     처리 시간: {item_elapsed_time:.2f}초 | 요약 길이: {len(result)}자")
             
             results.append(result)
         
         # 배치 요약 시간 측정 종료 및 출력
         batch_end_time = time.time()
         batch_elapsed_time = batch_end_time - batch_start_time
-        print(f"⏱️ 배치 요약 완료: {total_count}개 텍스트, 총 {batch_elapsed_time:.2f}초 소요 (평균 {batch_elapsed_time/total_count:.2f}초/개)")
+        print(f"[완료] 배치 요약 완료: {total_count}개 텍스트, 총 {batch_elapsed_time:.2f}초 소요 (평균 {batch_elapsed_time/total_count:.2f}초/개)")
         
         return results
 
@@ -301,7 +358,7 @@ def get_summary_analyzer() -> SummaryAnalyzer:
 
 
 if __name__ == "__main__":
-    """Infrastructure 레이어 직접 테스트"""
+    """Infrastructure 레이어 직접 테스트 (실제 실행 시 리소스/실행모드 출력 없음)"""
     print("=" * 60)
     print("Infrastructure 레이어 직접 테스트")
     print("=" * 60)
@@ -365,5 +422,6 @@ CS 매뉴얼은 준호가 내용, 소라가 톤/표현 수정. 마감은 목요�
     print("-" * 60)
     
     summary = analyzer.summarize(test_text.strip())
+    
     print(f"요약: {summary}")
     print("=" * 60)

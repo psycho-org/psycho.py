@@ -3,7 +3,18 @@ summary.py의 SummaryAnalyzer 테스트 케이스
 """
 
 import pytest
-from infrastructure.summary import SummaryAnalyzer, get_summary_analyzer
+
+try:
+    from infrastructure.summary import SummaryAnalyzer, get_summary_analyzer
+except OSError as e:
+    if "DLL" in str(e) or "1114" in str(e) or "c10.dll" in str(e).lower():
+        pytest.skip(
+            "PyTorch DLL could not be loaded (WinError 1114). "
+            "Install Visual C++ Redistributable (https://aka.ms/vs/17/release/vc_redist.x64.exe) "
+            "or reinstall torch: uv pip uninstall torch && uv pip install torch --index-url https://download.pytorch.org/whl/cpu",
+            allow_module_level=True,
+        )
+    raise
 
 
 class TestSummaryAnalyzer:
