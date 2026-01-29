@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from infrastructure.summary import SummaryAnalyzer
 from service.discord_chat_service import DiscordChatService
 
@@ -25,8 +27,8 @@ class SummaryService:
         max_length: int | None = None,
         min_length: int | None = None,
     ) -> str:
-        """텍스트 요약"""
-        return self.analyzer.summarize(text, max_length, min_length)
+        """텍스트 요약 (비동기, 이벤트 루프 블로킹 없음)"""
+        return await self.analyzer.summarize_async(text, max_length, min_length)
     
     async def summarize_batch(
         self,
@@ -35,8 +37,10 @@ class SummaryService:
         min_length: int | None = None,
         max_batch_size: int = 100,
     ) -> list[str]:
-        """여러 텍스트 일괄 요약"""
-        return self.analyzer.summarize_batch(texts, max_length, min_length, max_batch_size)
+        """여러 텍스트 일괄 요약 (비동기, 이벤트 루프 블로킹 없음)"""
+        return await asyncio.to_thread(
+            lambda: self.analyzer.summarize_batch(texts, max_length, min_length, max_batch_size)
+        )
     
     async def summarize_channel_chat(
         self,
@@ -77,8 +81,8 @@ class SummaryService:
                 "message_count": 0,
             }
         
-        # 2. LGAI EXAONE 모델로 요약
-        summary = self.analyzer.summarize(
+        # 2. LGAI EXAONE 모델로 요약 (비동기)
+        summary = await self.analyzer.summarize_async(
             chat_text,
             max_length=max_length,
             min_length=min_length,
@@ -130,8 +134,8 @@ class SummaryService:
                 "message_count": 0,
             }
         
-        # 2. LGAI EXAONE 모델로 요약
-        summary = self.analyzer.summarize(
+        # 2. LGAI EXAONE 모델로 요약 (비동기)
+        summary = await self.analyzer.summarize_async(
             chat_text,
             max_length=max_length,
             min_length=min_length,
