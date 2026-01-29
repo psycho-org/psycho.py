@@ -315,6 +315,10 @@ class SummaryAnalyzer:
         Raises:
             ValueError: 텍스트 개수가 max_batch_size를 초과하는 경우
         """
+        # 빈 입력에 대한 조기 반환 (ZeroDivisionError 방지)
+        if not texts:
+            return []
+        
         if len(texts) > max_batch_size:
             raise ValueError(
                 f"텍스트 개수는 최대 {max_batch_size}개까지 가능합니다. "
