@@ -7,21 +7,22 @@ from __future__ import annotations
 import asyncio
 from typing import TypedDict, TYPE_CHECKING
 
-from summary.summary import SummaryAnalyzer
+from model.summary.summary import SummaryAnalyzer
 
 if TYPE_CHECKING:
     # 타입 체크용 - 실제 구현이 없을 수 있음
     from typing import Protocol
-    
+
+
     class DiscordChatService(Protocol):
         """Discord 채팅 서비스 프로토콜"""
         messages: list[dict]
-        
+
         def get_messages_text_by_channel(
             self, channel_id: int, limit: int, include_author: bool
         ) -> str:
             ...
-        
+
         def get_all_messages_text(
             self, limit: int, include_author: bool
         ) -> str:
@@ -40,11 +41,11 @@ class SummaryResult(TypedDict):
 
 class SummaryService:
     """Discord Bot용 요약 서비스 - 채팅 이력 기반 요약"""
-    
+
     def __init__(self, chat_service: DiscordChatService | None = None):
         self.analyzer = SummaryAnalyzer()
         self.chat_service = chat_service
-    
+
     async def summarize(
         self,
         text: str,
@@ -53,7 +54,7 @@ class SummaryService:
     ) -> str:
         """텍스트 요약 (비동기, 이벤트 루프 블로킹 없음)"""
         return await self.analyzer.summarize_async(text, max_length, min_length)
-    
+
     async def summarize_batch(
         self,
         texts: list[str],
@@ -65,7 +66,7 @@ class SummaryService:
         return await asyncio.to_thread(
             self.analyzer.summarize_batch, texts, max_length, min_length, max_batch_size
         )
-    
+
     async def summarize_channel_chat(
         self,
         channel_id: int,
@@ -87,31 +88,31 @@ class SummaryService:
         """
         if not self.chat_service:
             raise ValueError("chat_service가 설정되지 않았습니다.")
-        
+
         # 기본값 설정
         max_length = max_length if max_length is not None else CHAT_DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else CHAT_DEFAULT_MIN_LENGTH
-        
+
         # 1. 채팅 서비스에서 메시지 텍스트 가져오기
         chat_text = self.chat_service.get_messages_text_by_channel(
             channel_id=channel_id,
             limit=limit,
             include_author=True,
         )
-        
+
         if not chat_text or len(chat_text.strip()) < min_length:
             return {
                 "summary": "요약할 충분한 대화가 없습니다.",
                 "message_count": 0,
             }
-        
+
         # 2. LGAI EXAONE 모델로 요약 (비동기)
         summary = await self.analyzer.summarize_async(
             chat_text,
             max_length=max_length,
             min_length=min_length,
         )
-        
+
         # 메시지 개수 계산: limit까지만 카운트 (효율적)
         message_count = 0
         for m in self.chat_service.messages:
@@ -119,12 +120,12 @@ class SummaryService:
                 message_count += 1
                 if message_count >= limit:
                     break
-        
+
         return {
             "summary": summary,
             "message_count": message_count,
         }
-    
+
     async def summarize_all_chat(
         self,
         limit: int = 100,
@@ -144,32 +145,32 @@ class SummaryService:
         """
         if not self.chat_service:
             raise ValueError("chat_service가 설정되지 않았습니다.")
-        
+
         # 기본값 설정
         max_length = max_length if max_length is not None else CHAT_DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else CHAT_DEFAULT_MIN_LENGTH
-        
+
         # 1. 채팅 서비스에서 모든 메시지 텍스트 가져오기
         chat_text = self.chat_service.get_all_messages_text(
             limit=limit,
             include_author=True,
         )
-        
+
         if not chat_text or len(chat_text.strip()) < min_length:
             return {
                 "summary": "요약할 충분한 대화가 없습니다.",
                 "message_count": 0,
             }
-        
+
         # 2. LGAI EXAONE 모델로 요약 (비동기)
         summary = await self.analyzer.summarize_async(
             chat_text,
             max_length=max_length,
             min_length=min_length,
         )
-        
+
         message_count = min(limit, len(self.chat_service.messages))
-        
+
         return {
             "summary": summary,
             "message_count": message_count,
