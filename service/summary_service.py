@@ -39,7 +39,7 @@ class SummaryService:
     ) -> list[str]:
         """여러 텍스트 일괄 요약 (비동기, 이벤트 루프 블로킹 없음)"""
         return await asyncio.to_thread(
-            lambda: self.analyzer.summarize_batch(texts, max_length, min_length, max_batch_size)
+            self.analyzer.summarize_batch, texts, max_length, min_length, max_batch_size
         )
     
     async def summarize_channel_chat(
