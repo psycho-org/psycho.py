@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "psycho-py"
 version = "0.1.0"
@@ -7,4 +11,27 @@ dependencies = [
     "fastapi>=0.128.0",
     "pydantic-settings>=2.12.0",
     "uvicorn>=0.40.0",
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.setuptools]
+packages = ["infrastructure", "service"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--durations=0",  # 모든 테스트의 실행 시간 표시
+    "-s",  # print 출력 표시
 ]
