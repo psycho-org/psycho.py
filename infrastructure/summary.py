@@ -284,7 +284,7 @@ class SummaryAnalyzer:
         Returns:
             요약된 텍스트
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             self.executor,
             self.summarize,
