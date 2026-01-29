@@ -124,6 +124,6 @@ class TestSummaryInferenceReport:
             print("=" * 70)
 
             assert isinstance(summary, str), "요약 결과는 문자열이어야 함"
-            assert len(summary) >= 0, "요약 결과 길이 검증"
+            assert len(summary) > 0, "요약 결과는 비어있지 않아야 함"
 
         _write_report(results, report_path, analyzer)
