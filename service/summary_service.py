@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TypedDict
 
 from infrastructure.summary import SummaryAnalyzer
 from service.discord_chat_service import DiscordChatService
@@ -12,6 +13,12 @@ from service.discord_chat_service import DiscordChatService
 # 채팅 요약용 기본값 (일반 요약보다 길게)
 CHAT_DEFAULT_MAX_LENGTH = 200
 CHAT_DEFAULT_MIN_LENGTH = 50
+
+
+class SummaryResult(TypedDict):
+    """요약 결과 타입"""
+    summary: str
+    message_count: int
 
 
 class SummaryService:
@@ -48,7 +55,7 @@ class SummaryService:
         limit: int = 50,
         max_length: int | None = None,
         min_length: int | None = None,
-    ) -> dict[str, str]:
+    ) -> SummaryResult:
         """
         특정 채널의 채팅 이력을 요약하는 파이프라인
         
@@ -103,7 +110,7 @@ class SummaryService:
         limit: int = 100,
         max_length: int | None = None,
         min_length: int | None = None,
-    ) -> dict[str, str]:
+    ) -> SummaryResult:
         """
         모든 채팅 이력을 요약하는 파이프라인
         
