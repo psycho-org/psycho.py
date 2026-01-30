@@ -13,6 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# 모델이 답변을 한글로, 날짜·기간·시간을 한글로 쓰게 하는 지시 (번역/정규화 유도)
+_PROMPT_LANG_RULE = (
+    "답변은 반드시 한국어로만 작성하고, 날짜·기간·시간은 한글 혹은 문자로 표기하세요. "
+    "예: 2026년 1월 30일, 다음 주 금요일, 3일 내, 오늘 오후 5시, 이번 주, 2026-06-01"
+)
+
 # Docker 등에서 볼륨 마운트 경로 지정 시 사용 (예: HF_HUB_CACHE=/cache/huggingface/hub)
 # 미설정 시 Hugging Face 기본 경로(~/.cache/huggingface/hub) 사용
 def _get_model_cache_dir() -> str | None:
@@ -152,8 +158,8 @@ class SummaryAnalyzer:
         # 상수 값 사용
         max_length = max_length if max_length is not None else self.DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else self.DEFAULT_MIN_LENGTH
-        # EXAONE 모델은 채팅 템플릿 형식을 사용해야 함
-        prompt = f"다음 텍스트를 간결하게 요약해주세요:\n\n{text}"
+        # EXAONE 모델은 채팅 템플릿 형식을 사용해야 함. 한글·날짜 지시로 모델이 번역하듯 출력하도록 유도
+        prompt = f"다음 텍스트를 간결하게 요약해주세요. {_PROMPT_LANG_RULE}\n\n{text}"
 
         messages = [
             {"role": "user", "content": prompt}
@@ -232,7 +238,7 @@ class SummaryAnalyzer:
         max_length = max_length if max_length is not None else self.DEFAULT_MAX_LENGTH
         min_length = min_length if min_length is not None else self.DEFAULT_MIN_LENGTH
 
-        prompt = f"다음 텍스트를 간결하게 요약해주세요:\n\n{text}"
+        prompt = f"다음 텍스트를 간결하게 요약해주세요. {_PROMPT_LANG_RULE}\n\n{text}"
         messages = [{"role": "user", "content": prompt}]
 
         formatted_prompt = self.tokenizer.apply_chat_template(

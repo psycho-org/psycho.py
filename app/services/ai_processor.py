@@ -10,6 +10,12 @@ from model.summary.summary import get_summary_analyzer
 
 logger = logging.getLogger(__name__)
 
+# 출력 시 날짜/기간을 한글로 통일하기 위한 프롬프트 문구 (모든 프롬프트에 공통으로 넣을 수 있음)
+_PROMPT_LANG_RULE = (
+    "답변은 반드시 한국어로만 작성하고, 날짜·기간·시간은 한글로 표기하세요. "
+    "예: 2026년 1월 30일, 다음 주 금요일, 3일 내, 오늘 오후 5시, 이번 주."
+)
+
 
 class AIProcessor:
     """Processor for AI-based message analysis using LGAI EXAONE model with dispatcher"""
@@ -52,8 +58,7 @@ class AIProcessor:
 
         async def summarize_task() -> str:
             """Actual summarization task"""
-            result = await self.analyzer.summarize_async(combined)
-            return result
+            return await self.analyzer.summarize_async(combined)
 
         def result_callback(result: str) -> None:
             """Callback when task completes - set future result"""
@@ -77,7 +82,7 @@ class AIProcessor:
                 summary = await asyncio.wait_for(future, timeout=timeout)
             else:
                 summary = await future
-            time_range = "past hour"
+            time_range = "최근 1시간"
             return summary, time_range
         except asyncio.TimeoutError:
             logger.error(f"Summarization task timeout after {timeout}s")
@@ -106,8 +111,9 @@ class AIProcessor:
 
         combined = "\n".join(messages)
         prompt = (
-            "Extract key decisions from the conversation. "
-            "List each decision as (title, owner, deadline):\n\n" + combined
+            "아래 대화에서 핵심 결정 사항을 추출해 주세요. "
+            "각 결정을 (제목, 담당자, 마감일) 형식으로 한 줄씩 나열하세요. "
+            f"{_PROMPT_LANG_RULE}\n\n" + combined
         )
 
         # Create future for result
@@ -122,9 +128,10 @@ class AIProcessor:
                 lines = extraction.split('\n')
                 for line in lines:
                     if line.strip() and len(line) > 10:
+                        title = line.strip()[:100]
                         decisions.append(
                             Decision(
-                                title=line.strip()[:100],
+                                title=title,
                                 owner="Unknown",
                                 deadline="",
                                 context=combined[:200]
@@ -134,10 +141,10 @@ class AIProcessor:
             if not decisions and messages:
                 decisions = [
                     Decision(
-                        title="Discussion Captured",
-                        owner="Team",
+                        title="논의 내용 기록",
+                        owner="팀",
                         deadline="",
-                        context=f"Analysis of {len(messages)} messages"
+                        context=f"{len(messages)}개 메시지 분석 결과"
                     )
                 ]
 
@@ -193,7 +200,7 @@ class AIProcessor:
 
         combined = "\n".join(messages)
         prompt = (
-            "Generate a concise catchup narrative from the conversation:\n\n" + combined
+            f"아래 대화를 바탕으로 간결한 캐치업(지금까지의 흐름 요약)을 작성해 주세요. {_PROMPT_LANG_RULE}\n\n" + combined
         )
 
         # Create future for result
@@ -205,14 +212,14 @@ class AIProcessor:
 
             key_points = []
             prompt_kp = (
-                "List 3 key points from the conversation:\n\n" + combined
+                f"아래 대화에서 핵심 포인트 3가지를 목록으로 제시해 주세요. {_PROMPT_LANG_RULE}\n\n" + combined
             )
             kp_text = await self.analyzer.summarize_async(prompt_kp, max_length=150, min_length=20)
             if kp_text:
-                key_points = [line.strip() for line in kp_text.split('\n') if line.strip()][:3]
+                key_points = [line.strip() for line in kp_text.split("\n") if line.strip()][:3]
 
             if not key_points:
-                key_points = ["Discussion captured"] if messages else []
+                key_points = ["논의 내용 요약"] if messages else []
 
             return narrative, key_points
 
