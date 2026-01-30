@@ -5,12 +5,19 @@ LGAI EXAONE 모델을 사용한 텍스트 요약
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Docker 등에서 볼륨 마운트 경로 지정 시 사용 (예: HF_HUB_CACHE=/cache/huggingface/hub)
+# 미설정 시 Hugging Face 기본 경로(~/.cache/huggingface/hub) 사용
+def _get_model_cache_dir() -> str | None:
+    return os.environ.get("HF_HUB_CACHE") or os.environ.get("HF_HOME")
+
 
 # 리소스 사용량 출력용 (psutil 없으면 GPU만 표시)
 try:
@@ -80,21 +87,28 @@ class SummaryAnalyzer:
         self.executor = executor or ThreadPoolExecutor(max_workers=max_workers)
         self.max_workers = max_workers
 
-        print(f"[로딩] EXAONE 모델 로딩 중: {model_name}")
+        cache_dir = _get_model_cache_dir()
+        if cache_dir:
+            print(f"[로딩] EXAONE 모델 로딩 중: {model_name} (캐시: {cache_dir})")
+        else:
+            print(f"[로딩] EXAONE 모델 로딩 중: {model_name}")
         try:
             # Hugging Face Hub 타임아웃 설정 (기본값 10초 -> 300초로 증가)
             # 환경 변수로만 설정 (from_pretrained의 timeout 파라미터는 일부 모델에서 지원 안 함)
-            import os
             os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
             os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")  # Windows symlink 경고 제거
 
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                cache_dir=cache_dir,
+            )
             # pad_token이 없으면 eos_token을 사용
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
+                cache_dir=cache_dir,
                 torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                 device_map="auto" if self.device == "cuda" else None,
             )

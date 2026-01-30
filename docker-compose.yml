@@ -1,0 +1,18 @@
+# EXAONE 모델 캐시를 볼륨에 저장해 컨테이너 재시작 시 재다운로드 없이 사용
+# 사용: docker compose up -d
+
+services:
+  app:
+    build: .
+    environment:
+      # Hugging Face 캐시를 이 경로에 저장 → 볼륨과 매핑
+      HF_HUB_CACHE: /cache/huggingface/hub
+      # 또는 HF_HOME 사용 (전체 HF 데이터 루트)
+      # HF_HOME: /cache/huggingface
+    volumes:
+      # 호스트의 ./cache 또는 named volume에 캐시 영구 저장
+      - hf-cache:/cache/huggingface
+    # CMD는 Dockerfile 기본값 사용
+
+volumes:
+  hf-cache:
