@@ -4,7 +4,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.config import settings
 from app.utils import validate_messages as validate_messages_util
@@ -21,6 +21,9 @@ class DecisionStatus(str, Enum):
 
 class Decision(BaseModel):
     """Single decision extracted from messages with extended metadata"""
+
+    # Pydantic v2 configuration
+    model_config = ConfigDict(use_enum_values=True)
 
     # Core fields
     title: str = Field(
@@ -77,9 +80,6 @@ class Decision(BaseModel):
         default="",
         description="Progress notes or updates on decision"
     )
-
-    class Config:
-        use_enum_values = True
 
 
 class DecisionRequest(BaseModel):

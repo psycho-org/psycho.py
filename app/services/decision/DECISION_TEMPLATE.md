@@ -193,8 +193,7 @@ POST /api/decisions
 ### API Response
 ```json
 {
-  "total_count": 2,
-  "decisions": [
+  "data": [
     {
       "title": "런칭일을 다음 주 화요일로 고정",
       "owner": "프로젝트 리더",
@@ -219,7 +218,12 @@ POST /api/decisions
       "updated_at": "2026-01-30T14:30:00",
       "notes": "결제 시스템 검증 중. 토큰 갱신 로직 수정 완료"
     }
-  ]
+  ],
+  "meta": {
+    "count": 2,
+    "timestamp": "2026-01-30T15:00:00Z",
+    "processing_time_ms": 123
+  }
 }
 ```
 

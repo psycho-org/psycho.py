@@ -7,7 +7,7 @@ tracking capabilities to the base Decision model defined in app.models.
 Reference: app/models.py Decision class
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -73,7 +73,7 @@ class DecisionBatch(BaseModel):
         description="Number of messages analyzed"
     )
     extraction_timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When decisions were extracted"
     )
 
@@ -129,7 +129,7 @@ def update_decision_status(
         Updated Decision instance
     """
     decision.status = new_status
-    decision.updated_at = datetime.utcnow()
+    decision.updated_at = datetime.now(timezone.utc)
     if notes:
         decision.notes = notes
     return decision
@@ -198,13 +198,15 @@ def get_overdue_decisions(
     Returns:
         List of overdue decisions
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     overdue = []
 
     for decision in decisions:
         if decision.deadline:
             try:
                 deadline = datetime.fromisoformat(decision.deadline.replace('Z', '+00:00'))
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=timezone.utc)
                 if deadline < now and decision.status != DecisionStatus.COMPLETED:
                     overdue.append(decision)
             except ValueError:

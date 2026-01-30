@@ -2,6 +2,7 @@
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -44,10 +45,8 @@ class Settings(BaseSettings):
         ge=1  # Minimum queue size of 1
     )
     # If None, worker will wait indefinitely for each task (no timeout)
-    dispatcher_task_timeout: float = Field(
+    dispatcher_task_timeout: Optional[float] = Field(
         default=60.0,
-        ge=1.0,  # Minimum 1 second
-        le=300.0,  # Maximum 5 minutes
         description="Per-task timeout in seconds. None disables timeout."
     )
     dispatcher_shutdown_timeout: float = Field(
