@@ -46,8 +46,8 @@ async def generate_catchup(http_request: Request, data: CatchupRequest):
         # Generate catchup and extract decisions
         try:
             narr_result, decisions = await asyncio.gather(
-                processor.generate_catchup(data.messages, settings.dispatcher_task_timeout),
-                processor.extract_decisions(data.messages, settings.dispatcher_task_timeout),
+                processor.generate_catchup(data.messages, None),
+                processor.extract_decisions(data.messages, None),
                 return_exceptions=True
             )
 

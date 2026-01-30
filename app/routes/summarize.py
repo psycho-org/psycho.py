@@ -47,7 +47,7 @@ async def summarize(request: Request, data: SummarizeRequest):
         try:
             summary, time_range, decisions = await processor.extract_summary_and_decisions(
                 data.messages,
-                timeout=settings.dispatcher_task_timeout
+                timeout=None  # wait until completed (no server-side timeout)
             )
             # Log summary content (truncated to prevent oversized logs)
             max_log_len = 2000

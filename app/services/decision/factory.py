@@ -10,6 +10,19 @@ from app.models import Decision, DecisionStatus
 logger = logging.getLogger(__name__)
 
 
+def dedup_decisions(decisions: list[Decision]) -> list[Decision]:
+    """Remove duplicates by normalized (title, owner)."""
+    seen: set[tuple[str, str]] = set()
+    unique: list[Decision] = []
+    for d in decisions:
+        key = (d.title.strip().lower(), (d.owner or "").strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(d)
+    return unique
+
+
 def create_decision_from_dict(data: dict, context: str = "", messages_content: str = "") -> Optional[Decision]:
     """
     Create a Decision from a dictionary of extracted data.
@@ -143,17 +156,30 @@ def parse_decisions_from_lines(extraction: str, messages_content: str = "") -> l
     Returns:
         List of Decision objects
     """
-    decisions = []
-    
+    decisions: list[Decision] = []
+
+    # Heuristics to ignore JSON/code-fence artifacts
+    MAX_FALLBACK_ITEMS = 8
     for line in extraction.split('\n'):
-        if not line.strip() or len(line) < 10:
+        l = line.strip()
+        if not l or len(l) < 10:
             continue
-        
-        decision = create_decision_from_text(line, messages_content)
+        if l.startswith("```"):
+            continue
+        if l[0] in ('"', "'"):
+            continue
+        if '":' in l or "':" in l:
+            continue
+        if l.endswith(',') or l.endswith('",'):
+            continue
+
+        decision = create_decision_from_text(l, messages_content)
         if decision:
             decisions.append(decision)
-    
-    return decisions
+            if len(decisions) >= MAX_FALLBACK_ITEMS:
+                break
+
+    return dedup_decisions(decisions)
 
 
 def create_placeholder_decision(messages_count: int, messages_content: str = "") -> Decision:

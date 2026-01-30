@@ -43,10 +43,10 @@ class Settings(BaseSettings):
         default=100,
         ge=1  # Minimum queue size of 1
     )
-    dispatcher_task_timeout: float = Field(
-        default=60.0,
-        ge=1.0,    # Minimum 1 second
-        le=300.0   # Maximum 5 minutes
+    # If None, worker will wait indefinitely for each task (no timeout)
+    dispatcher_task_timeout: float | None = Field(
+        default=None,
+        description="Per-task timeout in seconds. None disables timeout."
     )
     dispatcher_shutdown_timeout: float = Field(
         default=30.0,
@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     @field_validator('dispatcher_task_timeout')
     @classmethod
     def validate_task_timeout(cls, v):
+        if v is None:
+            return v
         if v > 300:
             raise ValueError("Task timeout cannot exceed 300 seconds (5 minutes)")
         if v < 1:
