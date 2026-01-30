@@ -351,18 +351,19 @@ response = requests.post(
 )
 
 data = response.json()
-print(f"Total decisions: {data['total_count']}")
+print(f"Total decisions: {data['meta']['count']}")
 
-for decision in data["decisions"]:
-    print(f"\n🎯 {decision['title']}")
-    print(f"   담당자: {decision['owner']}")
-    print(f"   기한: {decision['deadline']}")
-    print(f"   상태: {decision['status'].upper()}")
-    print(f"   우선순위: {decision['priority'].upper()}")
-    print(f"   카테고리: {decision['category']}")
-    print(f"   날짜: {decision['created_at']}")
-    if decision['notes']:
-        print(f"   메모: {decision['notes']}")
+for decision in data["data"]:
+    print(f"\n🎯 {decision.get('title')}")
+    print(f"   담당자: {decision.get('owner')}")
+    print(f"   기한: {decision.get('deadline')}")
+    print(f"   상태: {(decision.get('status') or '').upper()}")
+    print(f"   우선순위: {(decision.get('priority') or '').upper()}")
+    print(f"   카테고리: {decision.get('category')}")
+    print(f"   날짜: {decision.get('created_at')}")
+    notes = decision.get('notes')
+    if notes:
+        print(f"   메모: {notes}")
 ```
 
 ---
