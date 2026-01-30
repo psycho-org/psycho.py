@@ -5,7 +5,11 @@ import logging
 from typing import Optional
 
 from app.models import Decision
-from app.services.decision import parse_decisions_from_json
+from app.services.decision import (
+    parse_decisions_from_json,
+    parse_decisions_from_lines,
+    create_placeholder_decision,
+)
 from app.services.dispatcher import AsyncDispatcher
 from model.summary.summary import get_summary_analyzer
 
