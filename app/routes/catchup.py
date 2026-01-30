@@ -45,24 +45,23 @@ async def generate_catchup(http_request: Request, data: CatchupRequest):
 
         # Generate catchup and extract decisions
         try:
-            (narrative, key_points), decisions = await asyncio.gather(
+            narr_result, decisions = await asyncio.gather(
                 processor.generate_catchup(data.messages, settings.dispatcher_task_timeout),
                 processor.extract_decisions(data.messages, settings.dispatcher_task_timeout),
                 return_exceptions=True
             )
 
             # Handle exceptions from gather
-            if isinstance(narrative, Exception):
-                logger.error(f"Catchup generation failed: {narrative}")
-                raise narrative
+            if isinstance(narr_result, Exception):
+                logger.error(f"Catchup generation failed: {narr_result}")
+                raise narr_result
 
             if isinstance(decisions, Exception):
                 logger.warning(f"Decision extraction failed during catchup: {decisions}")
                 decisions = []
-            else:
-                # Extract the decisions from the tuple result
-                if isinstance(narrative, tuple):
-                    narrative, key_points = narrative
+
+            # Safe to unpack now
+            narrative, key_points = narr_result
 
             logger.info(
                 f"Catchup generation completed: {len(narrative)} chars, {len(key_points)} key points, {len(decisions)} decisions")

@@ -307,9 +307,12 @@ class AIProcessor:
         if not self.dispatcher or not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher is not available or not running")
 
-        # Try single-call combined extraction first to reduce latency
+        # Single-call combined extraction via dispatcher (no parallel fallback)
         try:
             import json
+
+            if not self.dispatcher or not self.dispatcher.is_running:
+                raise RuntimeError("Dispatcher is not available or not running")
 
             combined = self._truncate("\n".join(messages))
             prompt = (
@@ -320,7 +323,22 @@ class AIProcessor:
                 "priority in [low, medium, high, critical]. Conversation follows:\n\n" + combined
             )
 
-            resp = await self.analyzer.summarize_async(prompt, max_length=700, min_length=80)
+            # Run on dispatcher to ensure single worker task
+            future: asyncio.Future[str] = asyncio.Future()
+
+            async def combined_task() -> str:
+                return await self.analyzer.summarize_async(prompt, max_length=700, min_length=80)
+
+            def set_result(resp: str) -> None:
+                if not future.done():
+                    future.set_result(resp)
+
+            await self.dispatcher.submit_task(combined_task(), callback=set_result, block=True)
+
+            if timeout:
+                resp = await asyncio.wait_for(future, timeout=timeout)
+            else:
+                resp = await future
 
             summary_text = ""
             time_range = "past hour"
@@ -336,7 +354,6 @@ class AIProcessor:
                         time_range = str(obj.get('time_range', 'past hour')).strip() or 'past hour'
                         items = obj.get('decisions', []) or []
                         if isinstance(items, list):
-                            # Reuse existing helper to normalize via dict path
                             from app.services.decision.factory import create_decision_from_dict
                             for it in items:
                                 if isinstance(it, dict):
@@ -344,20 +361,8 @@ class AIProcessor:
                                     if d:
                                         decisions.append(d)
                 except Exception:
-                    pass
-
-            # If parsing failed, fall back to previous parallel method
-            if not summary_text and not decisions:
-                summary_tuple, decisions_list = await asyncio.gather(
-                    self.summarize(messages, timeout),
-                    self.extract_decisions(messages, timeout),
-                )
-                if isinstance(summary_tuple, tuple):
-                    summary_text, time_range = summary_tuple
-                else:
-                    summary_text = summary_tuple
-                    time_range = "past hour"
-                decisions = decisions_list
+                    # Non-fatal parse error: return empty decisions and best-effort summary
+                    logger.warning("Failed to parse combined JSON response; returning best-effort fields")
 
             return summary_text, time_range, decisions
 

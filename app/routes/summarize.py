@@ -49,7 +49,14 @@ async def summarize(request: Request, data: SummarizeRequest):
                 data.messages,
                 timeout=settings.dispatcher_task_timeout
             )
-            logger.info(f"Analysis completed: summary extracted, {len(decisions)} decisions extracted")
+            # Log summary content (truncated to prevent oversized logs)
+            max_log_len = 2000
+            preview = summary if len(summary) <= max_log_len else summary[:max_log_len] + "... [truncated]"
+            logger.info(
+                "Summary completed: %s chars, time_range=%s, preview=\n%s",
+                len(summary), time_range, preview
+            )
+            logger.info("Decisions extracted: %s", len(decisions))
         except asyncio.TimeoutError:
             logger.error(f"Analysis timeout after {settings.dispatcher_task_timeout}s")
             raise HTTPException(
@@ -77,7 +84,7 @@ async def summarize(request: Request, data: SummarizeRequest):
 
         processing_time_ms = int((time.time() - start_time) * 1000)
         timestamp = datetime.now(UTC)
-        
+
         # Add summary and time_range to each decision
         decisions_with_summary = [
             {
@@ -87,7 +94,7 @@ async def summarize(request: Request, data: SummarizeRequest):
             }
             for decision in decisions
         ]
-        
+
         return {
             "data": decisions_with_summary,
             "meta": {
