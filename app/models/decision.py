@@ -41,11 +41,6 @@ class Decision(BaseModel):
         description="Background, rationale, and impact of the decision"
     )
 
-    # Summary information
-    summary: str = Field(
-        default="",
-        description="Summary of the conversation context"
-    )
     time_range: str = Field(
         default="",
         description="Time range of the conversation"

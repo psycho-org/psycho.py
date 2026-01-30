@@ -115,22 +115,19 @@ class AIProcessor:
 
         combined = self._truncate("\n".join(messages))
         prompt = (
-            "Extract key decisions from the conversation using the Decision Template guidelines.\n\n"
+            "아래 대화에서 의사결정을 추출하세요. 모든 텍스트 필드는 반드시 한국어로 작성합니다. "
+            "오직 JSON만 출력하세요(마크다운/코드펜스 금지).\n\n"
             f"{_PROMPT_LANG_RULE}\n\n"
-            "DECISION CATEGORIES:\n"
-            "1. Schedule: Timeline, dates, deadlines, milestones\n"
-            "2. Technical: Technology choices, architecture, implementation approaches\n"
-            "3. Business: Strategy, budget, pricing, market decisions\n"
-            "4. Policy: Rules, processes, standards, compliance\n"
-            "5. Resource: Team assignments, allocations, capacity\n\n"
-            "For each decision, extract:\n"
-            "- Title: Clear, specific, and actionable (max 200 chars)\n"
-            "- Owner: Person or team responsible\n"
-            "- Deadline: ISO format date (YYYY-MM-DD)\n"
-            "- Category: One of [schedule, technical, business, policy, resource]\n"
-            "- Priority: low, medium, high, or critical\n"
-            "- Context: Background, rationale, and impact\n\n"
-            "Format output as JSON array of decisions.\n\n"
+            "DECISION CATEGORIES (영문 그대로 사용): schedule, technical, business, policy, resource\n\n"
+            "각 결정 항목에 포함: \n"
+            "- title: 구체적이고 실행 가능한 제목(한국어, 최대 200자)\n"
+            "- owner: 담당자 또는 팀(한국어)\n"
+            "- deadline: ISO 날짜(YYYY-MM-DD) 또는 빈 문자열\n"
+            "- category: [schedule, technical, business, policy, resource] 중 하나\n"
+            "- priority: [low, medium, high, critical] 중 하나\n"
+            "- context: 배경/근거/영향(한국어)\n"
+            "- notes: 메모(선택, 한국어)\n\n"
+            "출력 형식: 의사결정의 JSON 배열만.\n\n"
             "CONVERSATION:\n" + combined
         )
 
@@ -228,8 +225,12 @@ class AIProcessor:
                 f"아래 대화를 바탕으로 간결한 캐치업과 핵심 포인트 3가지를 생성하세요. "
                 f"{_PROMPT_LANG_RULE}\n"
                 "반드시 JSON만 출력:\n"
-                '{ "narrative": "<string>", "key_points": ["<string>", "<string>", "<string>"] }\n\n'
-                f"{combined}"
+                "반드시 STRICT JSON 형식으로만 반환할 것.\n"
+                "JSON 키는 다음과 같아야 한다:\n"
+                "- narrative: 문자열 (요약 서술)\n"
+                "- key_points: 짧은 문자열 3개로 이루어진 배열\n"
+                "확실하지 않은 경우에도 가능한 최선의 결과를 생성하시오.\n"
+                "대화 내용:\n\n" + combined
             )
             resp = await self.analyzer.summarize_async(prompt_json, max_length=260, min_length=60)
 
@@ -289,120 +290,4 @@ class AIProcessor:
             return narrative, key_points
         except asyncio.TimeoutError:
             logger.error(f"Catchup generation task timeout after {timeout}s")
-            raise
-
-    async def extract_summary_and_decisions(
-        self, messages: list[str], timeout: Optional[float] = None
-    ) -> tuple[str, str, list[Decision]]:
-        """
-        Extract both summary and decisions from messages in parallel.
-
-        Args:
-            messages: List of formatted messages
-            timeout: Task timeout in seconds (applied to both tasks)
-
-        Returns:
-            Tuple of (summary, time_range, decisions)
-
-        Raises:
-            RuntimeError: Dispatcher not available or not running
-            asyncio.TimeoutError: Task timeout
-        """
-        if not messages:
-            return "", "", []
-
-        if not self.dispatcher or not self.dispatcher.is_running:
-            raise RuntimeError("Dispatcher is not available or not running")
-
-        # Single-call combined extraction via dispatcher (no parallel fallback)
-        try:
-            import json
-
-            if not self.dispatcher or not self.dispatcher.is_running:
-                raise RuntimeError("Dispatcher is not available or not running")
-
-            combined = self._truncate("\n".join(messages))
-            prompt = (
-                "From the conversation, produce STRICT JSON with keys: \n"
-                "summary (string), time_range (string), decisions (array of objects with fields: "
-                "title, owner, deadline, category, priority, context, notes).\n"
-                "Constraints: title<=200 chars; category in [schedule, technical, business, policy, resource]; "
-                "priority in [low, medium, high, critical]. Conversation follows:\n\n" + combined
-            )
-
-            # Run on dispatcher to ensure single worker task
-            future: asyncio.Future[str] = asyncio.Future()
-
-            async def combined_task() -> str:
-                return await self.analyzer.summarize_async(prompt, max_length=700, min_length=80)
-
-            def set_result(resp: str) -> None:
-                if not future.done():
-                    future.set_result(resp)
-
-            await self.dispatcher.submit_task(combined_task(), callback=set_result, block=True)
-
-            if timeout:
-                resp = await asyncio.wait_for(future, timeout=timeout)
-            else:
-                resp = await future
-
-            summary_text = ""
-            time_range = "past hour"
-            decisions: list[Decision] = []
-
-            if resp:
-                try:
-                    obj_start = resp.find('{')
-                    obj_end = resp.rfind('}')
-                    if obj_start != -1 and obj_end != -1:
-                        obj = json.loads(resp[obj_start:obj_end + 1])
-                        summary_text = str(obj.get('summary', '')).strip()
-                        time_range = str(obj.get('time_range', 'past hour')).strip() or 'past hour'
-                        items = obj.get('decisions', []) or []
-                        if isinstance(items, list):
-                            from app.services.decision.factory import create_decision_from_dict
-                            for it in items:
-                                if isinstance(it, dict):
-                                    d = create_decision_from_dict(it, context=combined[:300], messages_content=combined)
-                                    if d:
-                                        decisions.append(d)
-                except Exception:
-                    pass
-
-            # If summary is empty, perform a single summarize fallback
-            if not summary_text and messages:
-                try:
-                    s_tuple = await self.summarize(messages, timeout)
-                    if isinstance(s_tuple, tuple):
-                        summary_text, time_range = s_tuple
-                    else:
-                        summary_text = s_tuple
-                        time_range = "past hour"
-                except Exception as e:
-                    logger.warning(f"Fallback summarization failed: {e}")
-
-            # If no decisions parsed, perform a single fallback extraction (keeps total calls <= 2)
-            if not decisions and messages:
-                try:
-                    logger.warning("Combined JSON had no decisions; performing single fallback extraction")
-                    decisions = await self.extract_decisions(messages, timeout)
-                except Exception as e:
-                    logger.warning(f"Fallback decisions extraction failed: {e}")
-                    decisions = []
-
-            # Deduplicate after fallback as well
-            try:
-                from app.services.decision.factory import dedup_decisions as _dedup
-                decisions = _dedup(decisions)
-            except Exception:
-                pass
-
-            return summary_text, time_range, decisions
-
-        except asyncio.TimeoutError:
-            logger.error(f"Combined extraction timeout after {timeout}s")
-            raise
-        except Exception as e:
-            logger.error(f"Combined extraction failed: {e}", exc_info=True)
             raise
