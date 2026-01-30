@@ -9,14 +9,14 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from app.config import settings
 from app.middleware import get_safe_error_message
-from app.models import SummarizeRequest
+from app.models import SummarizeRequest, SummarizeResponse, SummarizeResponseMeta
 from app.services.ai_processor import AIProcessor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["AI Processing"])
 
 
-@router.post("/summarize", status_code=status.HTTP_200_OK)
+@router.post("/summarize", response_model=SummarizeResponse, status_code=status.HTTP_200_OK)
 async def summarize(request: Request, data: SummarizeRequest):
     """
     Summarize Discord messages and extract decisions.
@@ -43,11 +43,10 @@ async def summarize(request: Request, data: SummarizeRequest):
         # Create AIProcessor with dispatcher
         processor = AIProcessor(dispatcher=dispatcher)
 
-        # Process summarization and decision extraction
         try:
-            summary, time_range, decisions = await processor.extract_summary_and_decisions(
+            summary, time_range = await processor.summarize(
                 data.messages,
-                timeout=None  # wait until completed (no server-side timeout)
+                timeout=settings.dispatcher_task_timeout
             )
             # Log summary content (truncated to prevent oversized logs)
             max_log_len = 2000
@@ -56,7 +55,6 @@ async def summarize(request: Request, data: SummarizeRequest):
                 "Summary completed: %s chars, time_range=%s, preview=\n%s",
                 len(summary), time_range, preview
             )
-            logger.info("Decisions extracted: %s", len(decisions))
         except asyncio.TimeoutError:
             logger.error(f"Analysis timeout after {settings.dispatcher_task_timeout}s")
             raise HTTPException(
@@ -85,24 +83,15 @@ async def summarize(request: Request, data: SummarizeRequest):
         processing_time_ms = int((time.time() - start_time) * 1000)
         timestamp = datetime.now(UTC)
 
-        # Add summary and time_range to each decision
-        decisions_with_summary = [
-            {
-                **decision.model_dump(),
-                "summary": summary,
-                "time_range": time_range
-            }
-            for decision in decisions
-        ]
-
-        return {
-            "data": decisions_with_summary,
-            "meta": {
-                "count": len(decisions),
-                "timestamp": timestamp,
-                "processing_time_ms": processing_time_ms
-            }
-        }
+        return SummarizeResponse(
+            summary=summary,
+            time_range=time_range,
+            meta=SummarizeResponseMeta(
+                message_count=len(data.messages),
+                timestamp=timestamp,
+                processing_time_ms=processing_time_ms
+            )
+        )
 
     except HTTPException:
         raise

@@ -36,10 +36,6 @@ class CatchupResponse(BaseModel):
     """Response model for generate catchup endpoint"""
     narrative: str = Field(..., description="Catchup narrative")
     key_points: list[str] = Field(default_factory=list, description="Key points from conversation")
-    data: list = Field(
-        default_factory=list,
-        description="Extracted decisions with summary information"
-    )
     meta: CatchupResponseMeta = Field(
         default_factory=CatchupResponseMeta,
         description="Response metadata"

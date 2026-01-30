@@ -368,8 +368,19 @@ class AIProcessor:
                                     if d:
                                         decisions.append(d)
                 except Exception:
-                    # Non-fatal parse error: return empty decisions and best-effort summary
-                    logger.warning("Failed to parse combined JSON response; returning best-effort fields")
+                    pass
+
+            # If summary is empty, perform a single summarize fallback
+            if not summary_text and messages:
+                try:
+                    s_tuple = await self.summarize(messages, timeout)
+                    if isinstance(s_tuple, tuple):
+                        summary_text, time_range = s_tuple
+                    else:
+                        summary_text = s_tuple
+                        time_range = "past hour"
+                except Exception as e:
+                    logger.warning(f"Fallback summarization failed: {e}")
 
             # If no decisions parsed, perform a single fallback extraction (keeps total calls <= 2)
             if not decisions and messages:

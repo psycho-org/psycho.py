@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core import lifespan
 from app.middleware import ErrorHandlerMiddleware
-from app.routes import health, summarize, catchup
+from app.routes import health, summarize, catchup, decisions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +41,7 @@ app.add_middleware(ErrorHandlerMiddleware)
 # Include routers
 app.include_router(health.router)
 app.include_router(summarize.router)
+app.include_router(decisions.router)
 app.include_router(catchup.router)
 
 logger.info("Psycho AI Server initialized")

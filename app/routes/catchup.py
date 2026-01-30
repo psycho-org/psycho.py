@@ -43,28 +43,11 @@ async def generate_catchup(http_request: Request, data: CatchupRequest):
         # Create AIProcessor with dispatcher
         processor = AIProcessor(dispatcher=dispatcher)
 
-        # Generate catchup and extract decisions
         try:
-            narr_result, decisions = await asyncio.gather(
-                processor.generate_catchup(data.messages, None),
-                processor.extract_decisions(data.messages, None),
-                return_exceptions=True
-            )
-
-            # Handle exceptions from gather
-            if isinstance(narr_result, Exception):
-                logger.error(f"Catchup generation failed: {narr_result}")
-                raise narr_result
-
-            if isinstance(decisions, Exception):
-                logger.warning(f"Decision extraction failed during catchup: {decisions}")
-                decisions = []
-
-            # Safe to unpack now
-            narrative, key_points = narr_result
+            narrative, key_points = await processor.generate_catchup(data.messages, settings.dispatcher_task_timeout)
 
             logger.info(
-                f"Catchup generation completed: {len(narrative)} chars, {len(key_points)} key points, {len(decisions)} decisions")
+                f"Catchup generation completed: {len(narrative)} chars, {len(key_points)} key points")
         except asyncio.TimeoutError:
             logger.error(f"Catchup generation timeout after {settings.dispatcher_task_timeout}s")
             raise HTTPException(
@@ -93,20 +76,9 @@ async def generate_catchup(http_request: Request, data: CatchupRequest):
         processing_time_ms = int((time.time() - start_time) * 1000)
         timestamp = datetime.now(UTC)
 
-        # Add narrative and key_points to each decision
-        decisions_with_catchup = [
-            {
-                **decision.model_dump(),
-                "summary": narrative,
-                "time_range": ", ".join(key_points) if key_points else ""
-            }
-            for decision in decisions
-        ]
-
         return {
             "narrative": narrative,
             "key_points": key_points,
-            "data": decisions_with_catchup,
             "meta": {
                 "timestamp": timestamp,
                 "processing_time_ms": processing_time_ms

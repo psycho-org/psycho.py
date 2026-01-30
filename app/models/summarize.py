@@ -44,10 +44,6 @@ class SummarizeResponse(BaseModel):
     """Response model for summarize endpoint"""
     summary: str = Field(..., description="Summary of messages")
     time_range: str = Field(default="", description="Time range of messages")
-    data: list = Field(
-        default_factory=list,
-        description="Extracted decisions with summary information"
-    )
     meta: SummarizeResponseMeta = Field(
         default_factory=SummarizeResponseMeta,
         description="Response metadata"
