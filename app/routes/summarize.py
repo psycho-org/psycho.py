@@ -2,35 +2,38 @@
 
 import asyncio
 import logging
+import time
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.config import settings
 from app.middleware import get_safe_error_message
-from app.models import SummarizeRequest, SummarizeResponse
+from app.models import SummarizeRequest
 from app.services.ai_processor import AIProcessor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["AI Processing"])
 
 
-@router.post("/summarize", response_model=SummarizeResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/summarize", status_code=status.HTTP_200_OK)
 async def summarize(request: Request, data: SummarizeRequest):
     """
-    Summarize Discord messages (queued for background processing)
+    Summarize Discord messages and extract decisions.
     
     Args:
         request: FastAPI request object
         data: SummarizeRequest with list of messages
         
     Returns:
-        SummarizeResponse with status (queued)
+        JSON response with summary and decisions
     """
+    start_time = time.time()
     try:
         if not data.messages:
             raise HTTPException(status_code=400, detail="Messages list cannot be empty")
 
-        logger.info(f"Processing {len(data.messages)} messages for summarization")
+        logger.info(f"Processing {len(data.messages)} messages for summarization and decision extraction")
 
         # Get dispatcher from app state
         dispatcher = request.app.state.dispatcher
@@ -40,18 +43,18 @@ async def summarize(request: Request, data: SummarizeRequest):
         # Create AIProcessor with dispatcher
         processor = AIProcessor(dispatcher=dispatcher)
 
-        # Process summarization
+        # Process summarization and decision extraction
         try:
-            summary, time_range = await processor.summarize(
+            summary, time_range, decisions = await processor.extract_summary_and_decisions(
                 data.messages,
                 timeout=settings.dispatcher_task_timeout
             )
-            logger.info(f"Summarization completed: {len(summary)} chars")
+            logger.info(f"Analysis completed: summary extracted, {len(decisions)} decisions extracted")
         except asyncio.TimeoutError:
-            logger.error(f"Summarization timeout after {settings.dispatcher_task_timeout}s")
+            logger.error(f"Analysis timeout after {settings.dispatcher_task_timeout}s")
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail="Summarization processing timeout"
+                detail="Processing timeout"
             )
         except asyncio.QueueFull:
             logger.error("Task queue is full")
@@ -66,17 +69,33 @@ async def summarize(request: Request, data: SummarizeRequest):
                 detail="Service temporarily unavailable"
             )
         except Exception as e:
-            logger.error(f"Summarization failed: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"Analysis failed: {type(e).__name__}: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail="Summarization processing failed"
+                detail="Processing failed"
             )
 
-        return SummarizeResponse(
-            summary=summary,
-            message_count=len(data.messages),
-            time_range=time_range
-        )
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        timestamp = datetime.now(UTC)
+        
+        # Add summary and time_range to each decision
+        decisions_with_summary = [
+            {
+                **decision.model_dump(),
+                "summary": summary,
+                "time_range": time_range
+            }
+            for decision in decisions
+        ]
+        
+        return {
+            "data": decisions_with_summary,
+            "meta": {
+                "count": len(decisions),
+                "timestamp": timestamp,
+                "processing_time_ms": processing_time_ms
+            }
+        }
 
     except HTTPException:
         raise

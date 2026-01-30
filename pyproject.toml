@@ -14,6 +14,7 @@ dependencies = [
     "transformers>=4.34.0",
     "torch>=2.2.0",
     "accelerate>=1.12.0",  # CUDA device_map="auto" 사용 시 필요
+    "pytest>=9.0.2",
 ]
 
 [project.optional-dependencies]
