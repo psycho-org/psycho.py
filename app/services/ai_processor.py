@@ -273,7 +273,7 @@ class AIProcessor:
         # Submit task to dispatcher
         try:
             await self.dispatcher.submit_task(
-                catchup_task(),
+                catchup_task(combined, prompt),
                 callback=result_callback,
                 block=True
             )
