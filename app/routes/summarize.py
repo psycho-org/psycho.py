@@ -19,14 +19,14 @@ router = APIRouter(prefix="/api", tags=["AI Processing"])
 @router.post("/summarize", response_model=SummarizeResponse, status_code=status.HTTP_200_OK)
 async def summarize(request: Request, data: SummarizeRequest):
     """
-    Summarize Discord messages and extract decisions.
+    Summarize Discord messages.
     
     Args:
         request: FastAPI request object
         data: SummarizeRequest with list of messages
         
     Returns:
-        JSON response with summary and decisions
+        JSON response with summary metadata
     """
     start_time = time.time()
     try:
@@ -48,13 +48,13 @@ async def summarize(request: Request, data: SummarizeRequest):
                 data.messages,
                 timeout=settings.dispatcher_task_timeout
             )
-            # Log summary content (truncated to prevent oversized logs)
+            # Log only non-PII info at info level
             max_log_len = 2000
             preview = summary if len(summary) <= max_log_len else summary[:max_log_len] + "... [truncated]"
-            logger.info(
-                "Summary completed: %s chars, time_range=%s, preview=\n%s",
-                len(summary), time_range, preview
-            )
+            logger.info("Summary completed: %s chars, time_range=%s", len(summary), time_range)
+            # Emit preview only in debug to avoid leaking content in production
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Summary preview:\n%s", preview)
         except asyncio.TimeoutError:
             logger.error(f"Analysis timeout after {settings.dispatcher_task_timeout}s")
             raise HTTPException(

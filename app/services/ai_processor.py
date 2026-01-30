@@ -160,8 +160,8 @@ class AIProcessor:
             try:
                 from app.services.decision.factory import dedup_decisions as _dedup
                 decisions = _dedup(decisions)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception("dedup_decisions failed: %s", e)
 
             return decisions
 

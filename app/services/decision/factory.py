@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, UTC
 from typing import Optional
 
@@ -107,6 +108,7 @@ def create_decision_from_text(text: str, messages_content: str = "") -> Optional
 def parse_decisions_from_json(extraction: str, messages_content: str = "") -> list[Decision]:
     """
     Parse decisions from JSON extraction response.
+    Supports multiple independent JSON arrays embedded in free text.
     
     Args:
         extraction: JSON string from AI model
@@ -115,23 +117,25 @@ def parse_decisions_from_json(extraction: str, messages_content: str = "") -> li
     Returns:
         List of Decision objects
     """
-    decisions = []
-    
-    try:
-        # Try to find JSON array in response
-        json_match = extraction.find('[')
-        json_end = extraction.rfind(']')
-        
-        if json_match == -1 or json_end == -1:
-            return decisions
-        
-        json_str = extraction[json_match:json_end + 1]
-        decision_data = json.loads(json_str)
-        
-        if not isinstance(decision_data, list):
-            return decisions
-        
-        for item in decision_data:
+    decisions: list[Decision] = []
+
+    # Find all bracketed JSON array substrings non-greedily
+    matches = list(re.finditer(r"\[.*?\]", extraction, flags=re.S))
+    if not matches:
+        return decisions
+
+    for m in matches:
+        array_text = m.group(0)
+        try:
+            parsed = json.loads(array_text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON array from extraction segment: {e}")
+            continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
             if isinstance(item, dict):
                 decision = create_decision_from_dict(
                     item,
@@ -139,9 +143,7 @@ def parse_decisions_from_json(extraction: str, messages_content: str = "") -> li
                 )
                 if decision:
                     decisions.append(decision)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON from extraction: {e}")
-    
+
     return decisions
 
 

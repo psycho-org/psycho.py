@@ -132,7 +132,7 @@ class SummaryAnalyzer:
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 cache_dir=cache_dir,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                torch_dtype=torch.float16 if use_half else torch.float32,
                 device_map="auto" if self.device == "cuda" else None,
             )
             if self.device != "cuda":

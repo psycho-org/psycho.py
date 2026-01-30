@@ -94,7 +94,7 @@ async def extract_decisions(
                 decisions = []
 
             # Retry policy
-            if decisions or not require_non_empty or attempts > retry + 1:
+            if decisions or not require_non_empty or attempts > retry:
                 break
             else:
                 logger.info("Empty result; retrying (%s/%s)", attempts - 1, retry)
