@@ -37,7 +37,9 @@ def create_decision_from_dict(data: dict, context: str = "", messages_content: s
     """
     try:
         # Extract fields with defaults
-        title = data.get('title', 'Unnamed Decision')[:200]
+        raw_title = data.get('title')
+        title = (str(raw_title) if raw_title is not None else 'Unnamed Decision')
+        title = title[:200]
         owner = data.get('owner', 'Unknown')
         deadline = data.get('deadline', '')
         context_value = data.get('context', context or messages_content[:300])
