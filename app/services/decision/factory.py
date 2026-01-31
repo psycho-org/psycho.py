@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 from datetime import datetime, UTC
 from typing import Optional
 
@@ -108,41 +107,50 @@ def create_decision_from_text(text: str, messages_content: str = "") -> Optional
 def parse_decisions_from_json(extraction: str, messages_content: str = "") -> list[Decision]:
     """
     Parse decisions from JSON extraction response.
-    Supports multiple independent JSON arrays embedded in free text.
-    
+    Uses a streaming JSON decoder to safely extract one or more JSON arrays
+    from free-form text, robust to nested brackets and brackets in strings.
+
     Args:
-        extraction: JSON string from AI model
+        extraction: JSON-like string from AI model (may contain multiple arrays and text)
         messages_content: Original messages content for fallback context
-        
+
     Returns:
         List of Decision objects
     """
     decisions: list[Decision] = []
 
-    # Find all bracketed JSON array substrings non-greedily
-    matches = list(re.finditer(r"\[.*?\]", extraction, flags=re.S))
-    if not matches:
-        return decisions
+    decoder = json.JSONDecoder()
+    i = 0
+    n = len(extraction)
 
-    for m in matches:
-        array_text = m.group(0)
+    while i < n:
+        # Skip whitespace
+        while i < n and extraction[i].isspace():
+            i += 1
+        if i >= n:
+            break
         try:
-            parsed = json.loads(array_text)
+            obj, end = decoder.raw_decode(extraction, i)
+            # Prevent infinite loop if decoder reports no progress
+            if end <= i:
+                i += 1
+                continue
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON array from extraction segment: {e}")
+            # Advance by one to keep scanning
+            i += 1
+            # Log at warning level to aid debugging but not too noisy
+            logger.warning("JSON raw_decode failed at index %s: %s", i - 1, e)
             continue
 
-        if not isinstance(parsed, list):
-            continue
-
-        for item in parsed:
-            if isinstance(item, dict):
-                decision = create_decision_from_dict(
-                    item,
-                    messages_content=messages_content
-                )
-                if decision:
-                    decisions.append(decision)
+        # Only handle arrays here
+        if isinstance(obj, list):
+            for item in obj:
+                if isinstance(item, dict):
+                    decision = create_decision_from_dict(item, messages_content=messages_content)
+                    if decision:
+                        decisions.append(decision)
+        # Advance index to the end of the parsed JSON value
+        i = end
 
     return decisions
 

@@ -68,6 +68,8 @@ async def extract_decisions(
             try:
                 decisions = await processor.extract_decisions(data.messages, timeout=eff_timeout)
                 logger.info("Decisions attempt %s: %s items", attempts, len(decisions))
+                # Clear any previous error on successful attempt
+                last_error = None
             except asyncio.TimeoutError:
                 logger.error("Decisions timeout on attempt %s after %ss", attempts, eff_timeout)
                 last_error = HTTPException(
