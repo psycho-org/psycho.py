@@ -2,9 +2,16 @@
 
 import asyncio
 import logging
+import re
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import Decision
+from app.services.decision import (
+    parse_decisions_from_json,
+    parse_decisions_from_lines,
+    create_placeholder_decision,
+)
 from app.services.dispatcher import AsyncDispatcher
 from model.summary.summary import get_summary_analyzer
 
@@ -30,7 +37,10 @@ class AIProcessor:
         self.dispatcher = dispatcher
         self.analyzer = get_summary_analyzer()
 
-    async def summarize(self, messages: list[str], timeout: Optional[float] = None) -> tuple[str, str]:
+    def _truncate(self, text: str, max_chars: int = 8000) -> str:
+        return text if len(text) <= max_chars else text[:max_chars]
+
+    async def summarize(self, messages: list[str], timeout: Optional[float] = None, message_timestamps: Optional[list[str]] = None) -> tuple[str, str]:
         """
         Summarize messages using LGAI EXAONE AI model via dispatcher.
         
@@ -51,14 +61,14 @@ class AIProcessor:
         if not self.dispatcher or not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher is not available or not running")
 
-        combined = "\n".join(messages)
+        combined = self._truncate("\n".join(messages))
 
         # Create future for result
         future: asyncio.Future[str] = asyncio.Future()
 
         async def summarize_task() -> str:
             """Actual summarization task"""
-            return await self.analyzer.summarize_async(combined)
+            return await self.analyzer.summarize_async(combined, max_length=220, min_length=60)
 
         def result_callback(result: str) -> None:
             """Callback when task completes - set future result"""
@@ -82,11 +92,123 @@ class AIProcessor:
                 summary = await asyncio.wait_for(future, timeout=timeout)
             else:
                 summary = await future
-            time_range = "최근 1시간"
+            # Prefer explicit timestamps from caller (e.g., Discord message times)
+            if message_timestamps:
+                time_range = self._time_range_from_timestamps(message_timestamps)
+            else:
+                time_range = self._infer_time_range_from_messages(messages)
             return summary, time_range
         except asyncio.TimeoutError:
             logger.error(f"Summarization task timeout after {timeout}s")
             raise
+
+    def _time_range_from_timestamps(self, timestamps: list[str]) -> str:
+        """Compute time range from explicit ISO8601 timestamp strings.
+        Accepts Z or offsets; uses UTC for naive values. Single timestamp -> delta to now.
+        """
+        from datetime import datetime, timezone
+        times = []
+        for ts in timestamps:
+            s = str(ts).strip()
+            if not s:
+                continue
+            try:
+                dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            except Exception:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            times.append(dt)
+        if not times:
+            return ""
+        times.sort()
+        start = times[0]
+        end = times[-1] if len(times) > 1 else datetime.now(timezone.utc)
+        delta = end - start
+        days = delta.days
+        secs = delta.seconds
+        if days >= 1:
+            return f"약 {days}일"
+        hours = secs // 3600
+        if hours >= 1:
+            return f"약 {hours}시간"
+        minutes = secs // 60
+        if minutes >= 1:
+            return f"약 {minutes}분"
+        return "1분 미만"
+
+    def _infer_time_range_from_messages(self, messages: list[str]) -> str:
+        """Infer a simple time range string from timestamps present in messages.
+        - Supports ISO-like (YYYY-MM-DD[THH:MM(:SS)(Z/±HH:MM)]), slashes/dots, and Korean date forms.
+        - If 2+ timestamps: use min/max delta.
+        - If exactly 1 timestamp: compute delta to now.
+        - If none: return empty string.
+        """
+        iso_like = re.compile(
+            r"\d{4}[-/.]\d{2}[-/.]\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?"
+        )
+        kr_date = re.compile(
+            r"(?P<y>\d{4})년\s*(?P<m>\d{1,2})월\s*(?P<d>\d{1,2})일(?:\s*(?P<ampm>오전|오후)?\s*(?P<h>\d{1,2}):(?P<min>\d{2})(?::(?P<s>\d{2}))?)?"
+        )
+        times = []
+
+        # ISO-like including '/', '.' separators
+        for msg in messages:
+            for m in iso_like.finditer(msg):
+                ts = m.group(0).replace('Z', '+00:00')
+                try:
+                    dt = datetime.fromisoformat(ts)
+                except Exception:
+                    # Try normalize separators for date-only like YYYY/MM/DD
+                    try:
+                        norm = ts.replace('/', '-').replace('.', '-')
+                        dt = datetime.fromisoformat(norm)
+                    except Exception:
+                        continue
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                times.append(dt)
+
+        # Korean date format
+        for msg in messages:
+            for m in kr_date.finditer(msg):
+                try:
+                    y = int(m.group('y'))
+                    mo = int(m.group('m'))
+                    d = int(m.group('d'))
+                    h = int(m.group('h')) if m.group('h') else 0
+                    mi = int(m.group('min')) if m.group('min') else 0
+                    s = int(m.group('s')) if m.group('s') else 0
+                    ampm = m.group('ampm')
+                    if ampm == '오후' and h < 12:
+                        h += 12
+                    if ampm == '오전' and h == 12:
+                        h = 0
+                    dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+                    times.append(dt)
+                except Exception:
+                    continue
+
+        if not times:
+            return ""
+
+        times.sort()
+        start = times[0]
+        end = times[-1]
+        if len(times) == 1:
+            end = datetime.now(timezone.utc)
+        delta = end - start
+        days = delta.days
+        secs = delta.seconds
+        if days >= 1:
+            return f"약 {days}일"
+        hours = secs // 3600
+        if hours >= 1:
+            return f"약 {hours}시간"
+        minutes = secs // 60
+        if minutes >= 1:
+            return f"약 {minutes}분"
+        return "1분 미만"
 
     async def extract_decisions(self, messages: list[str], timeout: Optional[float] = None) -> list[Decision]:
         """
@@ -109,11 +231,22 @@ class AIProcessor:
         if not self.dispatcher or not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher is not available or not running")
 
-        combined = "\n".join(messages)
+        combined = self._truncate("\n".join(messages))
         prompt = (
-            "아래 대화에서 핵심 결정 사항을 추출해 주세요. "
-            "각 결정을 (제목, 담당자, 마감일) 형식으로 한 줄씩 나열하세요. "
-            f"{_PROMPT_LANG_RULE}\n\n" + combined
+            "아래 대화에서 의사결정을 추출하세요. 모든 텍스트 필드는 반드시 한국어로 작성합니다. "
+            "오직 JSON만 출력하세요(마크다운/코드펜스 금지).\n\n"
+            f"{_PROMPT_LANG_RULE}\n\n"
+            "DECISION CATEGORIES (영문 그대로 사용): schedule, technical, business, policy, resource\n\n"
+            "각 결정 항목에 포함: \n"
+            "- title: 구체적이고 실행 가능한 제목(한국어, 최대 200자)\n"
+            "- owner: 담당자 또는 팀(한국어)\n"
+            "- deadline: ISO 날짜(YYYY-MM-DD) 또는 빈 문자열\n"
+            "- category: [schedule, technical, business, policy, resource] 중 하나\n"
+            "- priority: [low, medium, high, critical] 중 하나\n"
+            "- context: 배경/근거/영향(한국어)\n"
+            "- notes: 메모(선택, 한국어)\n\n"
+            "출력 형식: 의사결정의 JSON 배열만.\n\n"
+            "CONVERSATION:\n" + combined
         )
 
         # Create future for result
@@ -121,32 +254,28 @@ class AIProcessor:
 
         async def extract_task() -> list[Decision]:
             """Actual decision extraction task"""
-            extraction = await self.analyzer.summarize_async(prompt, max_length=300, min_length=50)
-
+            extraction = await self.analyzer.summarize_async(prompt, max_length=350, min_length=50)
             decisions = []
-            if extraction:
-                lines = extraction.split('\n')
-                for line in lines:
-                    if line.strip() and len(line) > 10:
-                        title = line.strip()[:100]
-                        decisions.append(
-                            Decision(
-                                title=title,
-                                owner="Unknown",
-                                deadline="",
-                                context=combined[:200]
-                            )
-                        )
 
+            if extraction:
+                # Try to parse JSON response
+                decisions = parse_decisions_from_json(extraction, combined)
+
+                # Fallback: parse as lines if JSON parsing yielded no results
+                if not decisions:
+                    logger.warning("JSON parsing failed. Falling back to line parsing.")
+                    decisions = parse_decisions_from_lines(extraction, combined)
+
+            # Fallback if no decisions extracted
             if not decisions and messages:
-                decisions = [
-                    Decision(
-                        title="논의 내용 기록",
-                        owner="팀",
-                        deadline="",
-                        context=f"{len(messages)}개 메시지 분석 결과"
-                    )
-                ]
+                decisions = [create_placeholder_decision(len(messages), combined)]
+
+            # Deduplicate decisions
+            try:
+                from app.services.decision.factory import dedup_decisions as _dedup
+                decisions = _dedup(decisions)
+            except Exception as e:
+                logger.exception("dedup_decisions failed: %s", e)
 
             return decisions
 
@@ -198,7 +327,7 @@ class AIProcessor:
         if not self.dispatcher or not self.dispatcher.is_running:
             raise RuntimeError("Dispatcher is not available or not running")
 
-        combined = "\n".join(messages)
+        combined = self._truncate("\n".join(messages))
         prompt = (
             f"아래 대화를 바탕으로 간결한 캐치업(지금까지의 흐름 요약)을 작성해 주세요. {_PROMPT_LANG_RULE}\n\n" + combined
         )
@@ -206,20 +335,51 @@ class AIProcessor:
         # Create future for result
         future: asyncio.Future[tuple[str, list[str]]] = asyncio.Future()
 
-        async def catchup_task() -> tuple[str, list[str]]:
-            """Actual catchup generation task"""
-            narrative = await self.analyzer.summarize_async(prompt, max_length=200, min_length=30)
+        async def catchup_task(combined: str, prompt_narr: str) -> tuple[str, list[str]]:
+            import json, re
 
-            key_points = []
-            prompt_kp = (
-                f"아래 대화에서 핵심 포인트 3가지를 목록으로 제시해 주세요. {_PROMPT_LANG_RULE}\n\n" + combined
+            # 1) 단일 호출(JSON)
+            prompt_json = (
+                f"아래 대화를 바탕으로 간결한 캐치업과 핵심 포인트 3가지를 생성하세요. "
+                f"{_PROMPT_LANG_RULE}\n"
+                "반드시 JSON만 출력:\n"
+                "반드시 STRICT JSON 형식으로만 반환할 것.\n"
+                "JSON 키는 다음과 같아야 한다:\n"
+                "- narrative: 문자열 (요약 서술)\n"
+                "- key_points: 짧은 문자열 3개로 이루어진 배열\n"
+                "확실하지 않은 경우에도 가능한 최선의 결과를 생성하시오.\n"
+                "대화 내용:\n\n" + combined
             )
-            kp_text = await self.analyzer.summarize_async(prompt_kp, max_length=150, min_length=20)
-            if kp_text:
-                key_points = [line.strip() for line in kp_text.split("\n") if line.strip()][:3]
+            resp = await self.analyzer.summarize_async(prompt_json, max_length=260, min_length=60)
 
+            narrative, key_points = "", []
+
+            # 코드펜스/잡음 제거 후 JSON 파싱 시도
+            if resp:
+                text = resp.strip()
+                m = re.search(r"\{.*\}", text, flags=re.S)
+                if m:
+                    try:
+                        obj = json.loads(m.group(0))
+                        narrative = str(obj.get("narrative", "")).strip()
+                        kp = obj.get("key_points", [])
+                        if isinstance(kp, list):
+                            key_points = [str(x).strip() for x in kp if str(x).strip()][:3]
+                    except Exception as e:
+                        logger.warning(f"JSON parse failed: {e}")
+
+            # 2) 내러티브 보강
+            if not narrative:
+                narrative = await self.analyzer.summarize_async(prompt_narr, max_length=200, min_length=30)
+
+            # 3) 키포인트 보강(필요 시)
             if not key_points:
-                key_points = ["논의 내용 요약"] if messages else []
+                prompt_kp = f"아래 대화에서 핵심 포인트 3가지를 목록으로 제시: {_PROMPT_LANG_RULE}\n\n{combined}"
+                kp_text = await self.analyzer.summarize_async(prompt_kp, max_length=150, min_length=20)
+                if kp_text:
+                    key_points = [line.strip() for line in kp_text.splitlines() if line.strip()][:3]
+                if not key_points:
+                    key_points = ["논의 내용 요약"] if combined.strip() else []
 
             return narrative, key_points
 
@@ -231,7 +391,7 @@ class AIProcessor:
         # Submit task to dispatcher
         try:
             await self.dispatcher.submit_task(
-                catchup_task(),
+                catchup_task(combined, prompt),
                 callback=result_callback,
                 block=True
             )

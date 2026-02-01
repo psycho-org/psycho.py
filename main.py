@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core import lifespan
 from app.middleware import ErrorHandlerMiddleware
-from app.routes import health, summarize, decisions, catchup
+from app.routes import health, summarize, catchup, decisions
 
 logging.basicConfig(
     level=logging.INFO,

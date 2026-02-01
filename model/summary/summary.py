@@ -68,6 +68,19 @@ def print_resource_usage(label: str = "리소스") -> None:
     print(f"[{label}] {usage}")
 
 
+def _select_device() -> str:
+    """Return best available device: 'cuda' | 'mps' | 'cpu'."""
+    try:
+        if torch.cuda.is_available():
+            return "cuda"
+        # Apple Silicon (Metal/MPS)
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        pass
+    return "cpu"
+
+
 class SummaryAnalyzer:
     """EXAONE 모델을 사용한 텍스트 요약"""
 
@@ -87,7 +100,10 @@ class SummaryAnalyzer:
             executor: 커스텀 ThreadPoolExecutor (None이면 새로 생성)
             max_workers: 워커 스레드 개수 (executor가 None일 때만 사용)
         """
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # 디바이스 자동 선택 (cuda > mps > cpu)
+        self.device = _select_device()
+        # 일부 MPS 연산 미구현 시 CPU 폴백 허용 (성능보다 안정성 우선)
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
         self.model_name = model_name
         # 비동기 처리를 위한 스레드 풀
         self.executor = executor or ThreadPoolExecutor(max_workers=max_workers)
@@ -112,22 +128,26 @@ class SummaryAnalyzer:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
+            use_half = self.device in ("cuda", "mps")
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 cache_dir=cache_dir,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                torch_dtype=torch.float16 if use_half else torch.float32,
                 device_map="auto" if self.device == "cuda" else None,
             )
-            if self.device == "cpu":
+            if self.device != "cuda":
+                # mps 또는 cpu로 전체 이동
                 self.model.to(self.device)
             self.model.eval()
 
-            # GPU 사용 확인 및 출력
+            # 디바이스 정보 출력
             if self.device == "cuda":
                 model_device = next(self.model.parameters()).device
                 print(f"[완료] EXAONE 모델 로드 완료: {model_name}")
                 print(f"   모델 위치: {model_device}")
                 print(f"   메모리: {torch.cuda.get_device_properties(0).total_memory / 1024 ** 3:.2f}GB 총량")
+            elif self.device == "mps":
+                print(f"[완료] EXAONE 모델 로드 완료: {model_name} (Apple MPS 모드)")
             else:
                 print(f"[완료] EXAONE 모델 로드 완료: {model_name} (CPU 모드)")
             print_resource_usage("모델 로드 직후")

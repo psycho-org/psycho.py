@@ -2,6 +2,7 @@
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = 8000
     server_reload: bool = True
-    
+
     # Dispatcher settings
     dispatcher_max_workers: int = Field(
         default=5,
@@ -43,26 +44,28 @@ class Settings(BaseSettings):
         default=100,
         ge=1  # Minimum queue size of 1
     )
-    dispatcher_task_timeout: float = Field(
+    # If None, worker will wait indefinitely for each task (no timeout)
+    dispatcher_task_timeout: Optional[float] = Field(
         default=60.0,
-        ge=1.0,    # Minimum 1 second
-        le=300.0   # Maximum 5 minutes
+        description="Per-task timeout in seconds. None disables timeout."
     )
     dispatcher_shutdown_timeout: float = Field(
         default=30.0,
-        ge=1.0,    # Minimum 1 second  
-        le=120.0   # Maximum 2 minutes
+        ge=1.0,  # Minimum 1 second
+        le=120.0  # Maximum 2 minutes
     )
-    
+
     @field_validator('dispatcher_task_timeout')
     @classmethod
     def validate_task_timeout(cls, v):
+        if v is None:
+            return v
         if v > 300:
             raise ValueError("Task timeout cannot exceed 300 seconds (5 minutes)")
         if v < 1:
             raise ValueError("Task timeout must be at least 1 second")
         return v
-        
+
     @field_validator('dispatcher_shutdown_timeout')
     @classmethod
     def validate_shutdown_timeout(cls, v):
