@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import re
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.models import Decision
@@ -90,11 +92,45 @@ class AIProcessor:
                 summary = await asyncio.wait_for(future, timeout=timeout)
             else:
                 summary = await future
-            time_range = "최근 1시간"
+            time_range = self._infer_time_range_from_messages(messages)
             return summary, time_range
         except asyncio.TimeoutError:
             logger.error(f"Summarization task timeout after {timeout}s")
             raise
+
+    def _infer_time_range_from_messages(self, messages: list[str]) -> str:
+        """Infer a simple time range string from ISO-like timestamps in messages.
+        Returns a short Korean string like '약 2시간', '약 3일', '약 15분', or '' if unknown.
+        """
+        iso_pattern = re.compile(
+            r"\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?"
+        )
+        times = []
+        for msg in messages:
+            for m in iso_pattern.finditer(msg):
+                ts = m.group(0).replace('Z', '+00:00')
+                try:
+                    dt = datetime.fromisoformat(ts)
+                except Exception:
+                    continue
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                times.append(dt)
+        if len(times) < 2:
+            return ""
+        start, end = min(times), max(times)
+        delta = end - start
+        days = delta.days
+        secs = delta.seconds
+        if days >= 1:
+            return f"약 {days}일"
+        hours = secs // 3600
+        if hours >= 1:
+            return f"약 {hours}시간"
+        minutes = secs // 60
+        if minutes >= 1:
+            return f"약 {minutes}분"
+        return "1분 미만"
 
     async def extract_decisions(self, messages: list[str], timeout: Optional[float] = None) -> list[Decision]:
         """
