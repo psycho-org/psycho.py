@@ -44,9 +44,12 @@ async def summarize(request: Request, data: SummarizeRequest):
         processor = AIProcessor(dispatcher=dispatcher)
 
         try:
+            texts = [m.text for m in data.messages]
+            timestamps = [m.timestamp.isoformat() for m in data.messages if m.timestamp is not None]
             summary, time_range = await processor.summarize(
-                data.messages,
-                timeout=settings.dispatcher_task_timeout
+                texts,
+                timeout=settings.dispatcher_task_timeout,
+                message_timestamps=timestamps or None,
             )
             # Log only non-PII info at info level
             max_log_len = 2000

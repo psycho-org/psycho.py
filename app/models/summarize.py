@@ -5,23 +5,32 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.config import settings
 from app.utils import validate_messages as validate_messages_util
 
 if TYPE_CHECKING:
-    from app.models.decision import Decision
+    pass
+
+
+class MessageEntry(BaseModel):
+    text: str = Field(..., description="Message content")
+    timestamp: datetime | None = Field(
+        default=None,
+        description="Optional ISO8601 timestamp (Z or offset allowed)"
+    )
 
 
 class SummarizeRequest(BaseModel):
     """Request model for summarize endpoint"""
-    messages: list[str] = Field(..., min_length=1, max_length=settings.max_messages,
-                                description="List of messages to summarize")
+    messages: list[MessageEntry] = Field(
+        ..., min_length=1, description="Messages with optional timestamps"
+    )
 
     @field_validator('messages')
     @classmethod
-    def validate_messages(cls, v):
-        """Validate message content and length"""
-        return validate_messages_util(v)
+    def validate_messages(cls, entries: list[MessageEntry]):
+        """Validate message content and length using existing rules."""
+        validate_messages_util([e.text for e in entries])
+        return entries
 
 
 class SummarizeResponseMeta(BaseModel):

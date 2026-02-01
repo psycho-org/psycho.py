@@ -40,7 +40,7 @@ class AIProcessor:
     def _truncate(self, text: str, max_chars: int = 8000) -> str:
         return text if len(text) <= max_chars else text[:max_chars]
 
-    async def summarize(self, messages: list[str], timeout: Optional[float] = None) -> tuple[str, str]:
+    async def summarize(self, messages: list[str], timeout: Optional[float] = None, message_timestamps: Optional[list[str]] = None) -> tuple[str, str]:
         """
         Summarize messages using LGAI EXAONE AI model via dispatcher.
         
@@ -92,33 +92,111 @@ class AIProcessor:
                 summary = await asyncio.wait_for(future, timeout=timeout)
             else:
                 summary = await future
-            time_range = self._infer_time_range_from_messages(messages)
+            # Prefer explicit timestamps from caller (e.g., Discord message times)
+            if message_timestamps:
+                time_range = self._time_range_from_timestamps(message_timestamps)
+            else:
+                time_range = self._infer_time_range_from_messages(messages)
             return summary, time_range
         except asyncio.TimeoutError:
             logger.error(f"Summarization task timeout after {timeout}s")
             raise
 
-    def _infer_time_range_from_messages(self, messages: list[str]) -> str:
-        """Infer a simple time range string from ISO-like timestamps in messages.
-        Returns a short Korean string like '약 2시간', '약 3일', '약 15분', or '' if unknown.
+    def _time_range_from_timestamps(self, timestamps: list[str]) -> str:
+        """Compute time range from explicit ISO8601 timestamp strings.
+        Accepts Z or offsets; uses UTC for naive values. Single timestamp -> delta to now.
         """
-        iso_pattern = re.compile(
-            r"\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?"
+        from datetime import datetime, timezone
+        times = []
+        for ts in timestamps:
+            s = str(ts).strip()
+            if not s:
+                continue
+            try:
+                dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            except Exception:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            times.append(dt)
+        if not times:
+            return ""
+        times.sort()
+        start = times[0]
+        end = times[-1] if len(times) > 1 else datetime.now(timezone.utc)
+        delta = end - start
+        days = delta.days
+        secs = delta.seconds
+        if days >= 1:
+            return f"약 {days}일"
+        hours = secs // 3600
+        if hours >= 1:
+            return f"약 {hours}시간"
+        minutes = secs // 60
+        if minutes >= 1:
+            return f"약 {minutes}분"
+        return "1분 미만"
+
+    def _infer_time_range_from_messages(self, messages: list[str]) -> str:
+        """Infer a simple time range string from timestamps present in messages.
+        - Supports ISO-like (YYYY-MM-DD[THH:MM(:SS)(Z/±HH:MM)]), slashes/dots, and Korean date forms.
+        - If 2+ timestamps: use min/max delta.
+        - If exactly 1 timestamp: compute delta to now.
+        - If none: return empty string.
+        """
+        iso_like = re.compile(
+            r"\d{4}[-/.]\d{2}[-/.]\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?"
+        )
+        kr_date = re.compile(
+            r"(?P<y>\d{4})년\s*(?P<m>\d{1,2})월\s*(?P<d>\d{1,2})일(?:\s*(?P<ampm>오전|오후)?\s*(?P<h>\d{1,2}):(?P<min>\d{2})(?::(?P<s>\d{2}))?)?"
         )
         times = []
+
+        # ISO-like including '/', '.' separators
         for msg in messages:
-            for m in iso_pattern.finditer(msg):
+            for m in iso_like.finditer(msg):
                 ts = m.group(0).replace('Z', '+00:00')
                 try:
                     dt = datetime.fromisoformat(ts)
                 except Exception:
-                    continue
+                    # Try normalize separators for date-only like YYYY/MM/DD
+                    try:
+                        norm = ts.replace('/', '-').replace('.', '-')
+                        dt = datetime.fromisoformat(norm)
+                    except Exception:
+                        continue
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 times.append(dt)
-        if len(times) < 2:
+
+        # Korean date format
+        for msg in messages:
+            for m in kr_date.finditer(msg):
+                try:
+                    y = int(m.group('y'))
+                    mo = int(m.group('m'))
+                    d = int(m.group('d'))
+                    h = int(m.group('h')) if m.group('h') else 0
+                    mi = int(m.group('min')) if m.group('min') else 0
+                    s = int(m.group('s')) if m.group('s') else 0
+                    ampm = m.group('ampm')
+                    if ampm == '오후' and h < 12:
+                        h += 12
+                    if ampm == '오전' and h == 12:
+                        h = 0
+                    dt = datetime(y, mo, d, h, mi, s, tzinfo=timezone.utc)
+                    times.append(dt)
+                except Exception:
+                    continue
+
+        if not times:
             return ""
-        start, end = min(times), max(times)
+
+        times.sort()
+        start = times[0]
+        end = times[-1]
+        if len(times) == 1:
+            end = datetime.now(timezone.utc)
         delta = end - start
         days = delta.days
         secs = delta.seconds
